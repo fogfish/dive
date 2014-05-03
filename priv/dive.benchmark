@@ -1,0 +1,30 @@
+{code_paths, [
+  "./ebin"
+ ,"./deps/cache"
+ ,"./deps/datum"
+ ,"./deps/eleveldb"
+ ,"./deps/feta"
+ ,"./deps/pipe"
+ ,"./deps/pns"
+]}.
+{log_level,       info}.
+{report_interval, 1}.
+{driver,          dive_benchmark}.
+
+%%
+%% workload
+{mode,            max}.
+{duration,          1}.
+{concurrent,       10}.
+
+%%
+{key_generator,     {uniform_int, 1000000}}.
+{value_generator,   {fixed_bin,      1000}}.
+
+{operations, [
+   {put,    5}
+  ,{get,    5}
+  ,{remove, 1}
+]}.
+
+{db,  "/tmp/dive"}.
