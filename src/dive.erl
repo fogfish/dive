@@ -13,14 +13,12 @@
   ,remove/2
   ,remove_/2
   ,ttl/1
+  ,stream/2
   %% data structure
   ,append/3
   ,append_/3
   ,head/2
   ,take/2
-
-  % ,stream/1
-  % ,stream/2
 ]).
 
 %%
@@ -133,6 +131,15 @@ remove_(Fd, Key) ->
    _ = cache:remove(dive_cache, Key),
    eleveldb:delete(Fd, Key, [{sync, false}]).
 
+%%
+%%  return stream of values
+%%
+%%  {prefix,  Key} - key prefix lookup
+%%  {KeyA,   KeyB} - key range lookup
+%%  {Key,       N} - key batch lookup
+stream(Fd, Query) ->
+   dive_stream:new(Fd, Query, []).
+
 %%%----------------------------------------------------------------------------   
 %%%
 %%% data structure
@@ -201,37 +208,6 @@ take(Fd, Key) ->
       {error, _} = Error ->
          Error
    end.
-
-
-% %%
-% %%  lookup key, the query is expressed as
-% %%
-% %%  binary()       - key lookup (get)
-% %%  {prefix,  Key} - key prefix lookup
-% %%  {KeyA,   KeyB} - key range lookup
-% %%  {Key,       N} - key batch lookup
-% lookup(Fd, Query) ->
-%    ok.
-%    % stream:list(stream(Fd, Query)).
-
-% %% @todo: -> {first, KeyB} {KeyA, last}
-
-
-% %%
-% %% create bucket iterator and package it to the stream.
-% %% the stream resources are garbage collected when it 
-% %% reaches eof or owner process dies.
-% stream(Fd) ->
-%    stream(Fd, undefined).
-
-% stream(Fd, Req)
-%  when ?is_fd(Fd) ->
-%    kvs_stream:new(Fd, Req, []);
-
-% stream(Pid, Req)
-%  when is_pid(Pid) ->
-%    stream(fd(Pid), Req).
-
 
 %%%----------------------------------------------------------------------------   
 %%%
