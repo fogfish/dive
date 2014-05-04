@@ -59,7 +59,7 @@ free(Pid) ->
    pipe:call(Pid, {free, self()}).
 
 %%
-%% get file descriptor 
+%% get file descriptor (@todo: no cache fd)
 -spec(fd/1 :: (pid()) -> fd()).
 
 fd(Pid) ->
@@ -77,7 +77,7 @@ fd(Pid) ->
 
 put(Fd, Key, Val) ->
    ok = cache:put(dive_cache, Key, Val),
-   eleveldb:put(Fd, Key, encode(Val), [{sync, true}]).
+   eleveldb:put(Fd, Key, dive_struct:encode(Val), [{sync, true}]).
 
 %%
 %% asynchronous put key / val to storage
@@ -85,7 +85,7 @@ put(Fd, Key, Val) ->
 
 put_(Fd, Key, Val) ->
    ok = cache:put_(dive_cache, Key, Val),
-   eleveldb:put(Fd, Key, encode(Val), [{sync, false}]).
+   eleveldb:put(Fd, Key, dive_struct:encode(Val), [{sync, false}]).
 
 %%
 %% synchronous get key / val from storage
@@ -96,7 +96,7 @@ get(Fd, Key) ->
       undefined ->
          case eleveldb:get(Fd, Key, []) of
             {ok, Val} ->
-               Value = decode(Val),
+               Value = dive_struct:decode(Val),
                cache:put_(dive_cache, Key, Value),
                {ok, Value};
             not_found ->
@@ -134,9 +134,10 @@ remove_(Fd, Key) ->
 %%
 %%  return stream of values
 %%
-%%  {prefix,  Key} - key prefix lookup
-%%  {KeyA,   KeyB} - key range lookup
-%%  {Key,       N} - key batch lookup
+%%  {prefix,  Key}    - key prefix lookup
+%%  {prefix,  Key, N} - key prefix lookup @todo:
+%%  {KeyA,   KeyB}    - key range lookup
+%%  {Key,       N}    - key batch lookup
 stream(Fd, Query) ->
    dive_stream:new(Fd, Query, []).
 
@@ -215,24 +216,6 @@ take(Fd, Key) ->
 %%%
 %%%----------------------------------------------------------------------------   
 
-%%
-%%
-encode(X)
- when is_binary(X) ->
-   X;
-encode(X) ->
-   erlang:term_to_binary(X).
-
-%%
-%%
-decode(<<131, _/binary>>=X) ->
-   try
-      erlang:binary_to_term(X)
-   catch _:_ ->
-      X
-   end;
-decode(X) ->
-   X.
 
 
 

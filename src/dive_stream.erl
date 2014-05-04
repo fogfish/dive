@@ -15,7 +15,7 @@
 %%   limitations under the License.
 %%
 %% @description
-%%
+%%  @todo: encode / decode stream data types
 -module(dive_stream).
 
 -export([
@@ -169,7 +169,7 @@ next_element_unsafe(#stream{req={Key, N}}=S)
 read_element(#stream{}=S) ->
    case eleveldb:iterator_move(S#stream.io, S#stream.read) of
       {ok, Key, Val} ->
-         {Key, Val};
+         {Key, dive_struct:decode(Val)};
       {ok,  Key} ->
          Key
    end.
