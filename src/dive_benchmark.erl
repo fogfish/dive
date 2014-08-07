@@ -44,33 +44,8 @@ run(remove, KeyGen, _ValGen, Fd) ->
          {ok, Fd};
       {error, Reason} ->
          {error, Reason, Fd}
-   end;
-
-%%
-%%
-run(append, KeyGen, ValGen, Fd) ->
-   case dive:append(Fd, scalar:s(KeyGen()), ValGen()) of
-      {ok, _} ->
-         {ok, Fd};
-      {error, Reason} ->
-         {error, Reason, Fd}
-   end;
-
-run(head, KeyGen, _ValGen, Fd) ->
-   case dive:head(Fd, scalar:s(KeyGen())) of
-      {ok, _} ->
-         {ok, Fd};
-      {error, Reason} ->
-         {error, Reason, Fd}
-   end;
-
-run(take, KeyGen, _ValGen, Fd) ->
-   case dive:take(Fd, scalar:s(KeyGen())) of
-      {ok, _} ->
-         {ok, Fd};
-      {error, Reason} ->
-         {error, Reason, Fd}
    end.
+
 
 
 

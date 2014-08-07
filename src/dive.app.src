@@ -1,15 +1,14 @@
 {application, dive,
    [
       {description, "data structure storage"},
-      {vsn,         "0.2.0"},
+      {vsn,         "0.3.0"},
       {modules,     []},
       {registered,  []},
       {applications,[
          kernel
         ,stdlib
-        ,eleveldb
         ,pns
-        ,cache
+        ,eleveldb
       ]},
       {mod, {dive_app, []}},      
       {env, []}

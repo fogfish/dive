@@ -15,6 +15,7 @@
 %%   limitations under the License.
 %%
 %% @description
+%%
 -module(dive_sup).
 -behaviour(supervisor).
 
@@ -41,7 +42,6 @@ init([]) ->
          {one_for_one, 10, 600},
          [
             ?CHILD(supervisor, dive_db_sup)
-           ,?CHILD(worker, cache, [dive_cache, opts:val(cache, ?CACHE_DEF, dive)]) 
          ]
       }
    }.

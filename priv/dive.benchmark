@@ -23,13 +23,9 @@
 {value_generator,   {fixed_bin,      1000}}.
 
 {operations, [
-  %  {put,    5}
-  % ,{get,    5}
-  % ,{remove, 1}
-
-   {append, 5}
-  ,{head,   5}
-  ,{take,   1}
+   {put,    5}
+  ,{get,    5}
+  ,{remove, 1}
 ]}.
 
 {db,  "/tmp/dive"}.

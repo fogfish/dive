@@ -20,7 +20,7 @@
 -behaviour(pipe).
 
 -export([
-   start_link/2
+   start_link/1
   ,init/1
   ,free/2
   ,ioctl/2
@@ -42,11 +42,8 @@
 %%%
 %%%----------------------------------------------------------------------------   
 
-start_link(undefined, Opts) ->
-   pipe:start_link(?MODULE, [Opts], []);
-
-start_link(Name, Opts) ->
-   pipe:start_link({local, Name}, ?MODULE, [Opts], []).
+start_link(Opts) ->
+   pipe:start_link(?MODULE, [Opts], []).
 
 init([Opts]) ->
    _ = erlang:process_flag(trap_exit, true),
@@ -88,10 +85,10 @@ handle({init, Pid}, Tx, S) ->
    case lists:keyfind(Pid, 1, S#fsm.pids) of
       false ->
          Ref = erlang:monitor(process, Pid),
-         pipe:ack(Tx, ok),
+         pipe:ack(Tx, {ok, self()}),
          {next_state, handle, S#fsm{pids=[{Pid, Ref}|S#fsm.pids]}};
       _ ->
-         pipe:ack(Tx, ok),
+         pipe:ack(Tx, {ok, self()}),
          {next_state, handle, S}
    end;
 
@@ -122,6 +119,82 @@ handle({'DOWN', _Ref, _Type, Pid, _Reason}, _Tx, S) ->
 
 handle({'EXIT', _, _}, _Tx, S) ->
    {stop, normal, S};
+
+handle(fd, Tx, State) ->
+   pipe:ack(Tx, {ok, State#fsm.fd}),
+   {next_state, handle, State};
+
+handle({put, Key, Val, Sync}, Tx, State) ->
+   pipe:ack(Tx, 
+      eleveldb:put(State#fsm.fd, Key, Val, [{sync, Sync}])
+   ),
+   {next_state, handle, State};
+
+handle({get, Key}, Tx, State) ->
+   Result = case eleveldb:get(State#fsm.fd, Key, []) of
+      {ok, Val} ->
+         {ok, Val};
+      not_found ->
+         {error, not_found};
+      {error,_} = Error ->
+         Error
+   end,
+   pipe:ack(Tx, Result),
+   {next_state, handle, State};
+
+handle({remove, Key, Sync}, Tx, State) ->
+   pipe:ack(Tx,
+      eleveldb:delete(State#fsm.fd, Key, [{sync, Sync}])
+   ),
+   {next_state, handle, State};
+
+handle({add, Key, Val, Sync}, Tx, State) ->
+   Result = case eleveldb:get(State#fsm.fd, Key, []) of
+      {ok,_Val} ->
+         {error, conflict};
+      not_found ->
+         eleveldb:put(State#fsm.fd, Key, Val, [{sync, Sync}]);
+      {error,_} = Error ->
+         Error
+   end,
+   pipe:ack(Tx, Result),
+   {next_state, handle, State};
+
+handle({replace, Key, Val, Sync}, Tx, State) ->
+   Result = case eleveldb:get(State#fsm.fd, Key, []) of
+      {ok,_Val} ->
+         eleveldb:put(State#fsm.fd, Key, Val, [{sync, Sync}]);
+      not_found ->
+         {error, not_found};
+      {error,_} = Error ->
+         Error
+   end,
+   pipe:ack(Tx, Result),
+   {next_state, handle, State};
+
+handle({append, Key, Tail, Sync}, Tx, State) ->
+   Result = case eleveldb:get(State#fsm.fd, Key, []) of
+      {ok, Head} ->
+         eleveldb:put(State#fsm.fd, Key, <<Head/binary, Tail/binary>>, [{sync, Sync}]);
+      not_found ->
+         eleveldb:put(State#fsm.fd, Key, Tail, [{sync, Sync}]);
+      {error,_} = Error ->
+         Error
+   end,
+   pipe:ack(Tx, Result),
+   {next_state, handle, State};
+
+handle({prepend, Key, Head, Sync}, Tx, State) ->
+   Result = case eleveldb:get(State#fsm.fd, Key, []) of
+      {ok, Tail} ->
+         eleveldb:put(State#fsm.fd, Key, <<Head/binary, Tail/binary>>, [{sync, Sync}]);
+      not_found ->
+         eleveldb:put(State#fsm.fd, Key, Head, [{sync, Sync}]);
+      {error,_} = Error ->
+         Error
+   end,
+   pipe:ack(Tx, Result),
+   {next_state, handle, State};
 
 handle(Msg, _Tx, S) ->
    error_logger:error_message("dive [db]: unexpected message ~p", [Msg]),

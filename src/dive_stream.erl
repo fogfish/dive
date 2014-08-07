@@ -24,10 +24,10 @@
 
 %% internal state
 -record(stream, {     
-   fd    = undefined :: any()       %% file descriptor
-  ,io    = undefined :: any()       %% file iterator
-  ,req   = undefined :: any()       %% 
-  ,read  = undefined :: any()       %%
+   fd      = undefined :: any()       %% file descriptor
+  ,io      = undefined :: any()       %% file iterator
+  ,pattern = undefined :: any()       %% 
+  ,read    = undefined :: any()       %%
 }).
 
 %% eleveldb allowed options
@@ -35,9 +35,9 @@
 
 %%
 %% create stream
-new(FD, Req, Opts) ->
+new(FD, Pattern, Opts) ->
    {ok, IO} = create_iterator(FD, Opts),
-   next_element(#stream{fd=FD, io=IO, req=Req}).
+   next_element(#stream{fd=FD, io=IO, pattern=Pattern}).
 
 %%
 %% create iterator
@@ -54,122 +54,128 @@ create_iterator(FD, Opts) ->
 next_element(S) ->
    try
       next_element_unsafe(S)
-   catch _:_Reason ->
+   catch _:Reason ->
+      io:format("=> ~p~n", [Reason]),
       (catch eleveldb:iterator_close(S#stream.io)),
       stream:new()
    end.
 
 %%
 %% full scan
-next_element_unsafe(#stream{req=undefined, read=undefined}=S) ->
-   next_element_unsafe(S#stream{read=first});
+next_element_unsafe(#stream{pattern='_', read=undefined}=State) ->
+   next_element_unsafe(
+      State#stream{
+         read = first
+      }
+   );
 
-next_element_unsafe(#stream{req=undefined}=S) ->
-   stream:new(read_element(S), fun() -> next_element(S#stream{read=prefetch}) end);
+next_element_unsafe(#stream{pattern='_'}=State) ->
+   stream:new(
+      read_element(State), 
+      fun() -> next_element(State#stream{read=prefetch}) end
+   );
 
 %%
 %% prefix scan
-next_element_unsafe(#stream{req={prefix, Key}}=S)
- when is_binary(Key) ->
-   next_element_unsafe(S#stream{req={prefix, Key, byte_size(Key)}, read=Key});
+next_element_unsafe(#stream{pattern={prefix, _Len, Pattern}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=Pattern});
 
-next_element_unsafe(#stream{req={prefix, Key, Len}}=S)
- when is_binary(Key) ->
-   case read_element(S) of
-      {<<Key:Len/binary, _/binary>>, _} = Head ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
-      <<Key:Len/binary, _/binary>> = Head ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
+next_element_unsafe(#stream{pattern={prefix, Len, Pattern}}=State) ->
+   case read_element(State) of
+      {<<Pattern:Len/binary, _/binary>>, _} = Head ->
+         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+      <<Pattern:Len/binary, _/binary>> = Head ->
+         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
       _ ->
-         eleveldb:iterator_close(S#stream.io),
+         eleveldb:iterator_close(State#stream.io),
          stream:new()
-   end;
+   end.
 
-%%
-%% range scan
-next_element_unsafe(#stream{req={KeyA, KeyB}, read=undefined}=S)
- when (is_binary(KeyA) orelse is_atom(KeyA)), is_binary(KeyB) ->
-   next_element_unsafe(S#stream{read=KeyA});
+% %%
+% %% range scan
+% next_element_unsafe(#stream{req={KeyA, KeyB}, read=undefined}=S)
+%  when (is_binary(KeyA) orelse is_atom(KeyA)), is_binary(KeyB) ->
+%    next_element_unsafe(S#stream{read=KeyA});
 
-next_element_unsafe(#stream{req={KeyA, KeyB}}=S)
- when is_binary(KeyA), is_binary(KeyB), KeyA > KeyB ->
-   case read_element(S) of
-      {Key, _} = Head when Key =< KeyA, Key >= KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
-      Head when is_binary(Head), Head =< KeyA, Head >= KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
-      _ ->
-         eleveldb:iterator_close(S#stream.io),
-         stream:new()
-   end;
+% next_element_unsafe(#stream{req={KeyA, KeyB}}=S)
+%  when is_binary(KeyA), is_binary(KeyB), KeyA > KeyB ->
+%    case read_element(S) of
+%       {Key, _} = Head when Key =< KeyA, Key >= KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
+%       Head when is_binary(Head), Head =< KeyA, Head >= KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
+%       _ ->
+%          eleveldb:iterator_close(S#stream.io),
+%          stream:new()
+%    end;
 
-next_element_unsafe(#stream{req={KeyA, KeyB}}=S)
- when is_binary(KeyA), is_binary(KeyB) ->
-   case read_element(S) of
-      {Key, _} = Head when Key >= KeyA, Key =< KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
-      Head when is_binary(Head), Head >= KeyA, Head =< KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
-      _ ->
-         eleveldb:iterator_close(S#stream.io),
-         stream:new()
-   end;
+% next_element_unsafe(#stream{req={KeyA, KeyB}}=S)
+%  when is_binary(KeyA), is_binary(KeyB) ->
+%    case read_element(S) of
+%       {Key, _} = Head when Key >= KeyA, Key =< KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
+%       Head when is_binary(Head), Head >= KeyA, Head =< KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
+%       _ ->
+%          eleveldb:iterator_close(S#stream.io),
+%          stream:new()
+%    end;
 
-next_element_unsafe(#stream{req={last, KeyB}}=S)
- when is_binary(KeyB) ->
-   case read_element(S) of
-      {Key, _} = Head when Key >= KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
-      Head when is_binary(Head), Head >= KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
-      _ ->
-         eleveldb:iterator_close(S#stream.io),
-         stream:new()
-   end;
+% next_element_unsafe(#stream{req={last, KeyB}}=S)
+%  when is_binary(KeyB) ->
+%    case read_element(S) of
+%       {Key, _} = Head when Key >= KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
+%       Head when is_binary(Head), Head >= KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prev}) end);
+%       _ ->
+%          eleveldb:iterator_close(S#stream.io),
+%          stream:new()
+%    end;
 
-next_element_unsafe(#stream{req={first, KeyB}}=S)
- when is_binary(KeyB) ->
-   case read_element(S) of
-      {Key, _} = Head when Key =< KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
-      Head when is_binary(Head), Head =< KeyB ->
-         stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
-      _ ->
-         eleveldb:iterator_close(S#stream.io),
-         stream:new()
-   end;
+% next_element_unsafe(#stream{req={first, KeyB}}=S)
+%  when is_binary(KeyB) ->
+%    case read_element(S) of
+%       {Key, _} = Head when Key =< KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
+%       Head when is_binary(Head), Head =< KeyB ->
+%          stream:new(Head, fun() -> next_element(S#stream{read=prefetch}) end);
+%       _ ->
+%          eleveldb:iterator_close(S#stream.io),
+%          stream:new()
+%    end;
 
 %%
 %% N-scan
-next_element_unsafe(#stream{req={Key, N}, read=undefined}=S)
- when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N > 0 ->
-   next_element_unsafe(S#stream{req={Key, N - 1}, read=Key});
+% next_element_unsafe(#stream{req={Key, N}, read=undefined}=S)
+%  when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N > 0 ->
+%    next_element_unsafe(S#stream{req={Key, N - 1}, read=Key});
 
-next_element_unsafe(#stream{req={Key, N}, read=undefined}=S)
- when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N < 0 ->
-   next_element_unsafe(S#stream{req={Key, N + 1}, read=Key});
+% next_element_unsafe(#stream{req={Key, N}, read=undefined}=S)
+%  when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N < 0 ->
+%    next_element_unsafe(S#stream{req={Key, N + 1}, read=Key});
 
-next_element_unsafe(#stream{req={Key, 0}}=S)
- when (is_binary(Key) orelse is_atom(Key)) ->
-   Head = read_element(S),
-   stream:new(Head);
+% next_element_unsafe(#stream{req={Key, 0}}=S)
+%  when (is_binary(Key) orelse is_atom(Key)) ->
+%    Head = read_element(S),
+%    stream:new(Head);
 
-next_element_unsafe(#stream{req={Key, N}}=S)
- when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N > 0 ->
-   Head = read_element(S),
-   stream:new(Head, fun() -> next_element(S#stream{req={Key, N - 1}, read=prefetch}) end);
+% next_element_unsafe(#stream{req={Key, N}}=S)
+%  when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N > 0 ->
+%    Head = read_element(S),
+%    stream:new(Head, fun() -> next_element(S#stream{req={Key, N - 1}, read=prefetch}) end);
 
-next_element_unsafe(#stream{req={Key, N}}=S)
- when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N < 0 ->
-   Head = read_element(S),
-   stream:new(Head, fun() -> next_element(S#stream{req={Key, N + 1}, read=prev}) end).
+% next_element_unsafe(#stream{req={Key, N}}=S)
+%  when (is_binary(Key) orelse is_atom(Key)), is_integer(N), N < 0 ->
+%    Head = read_element(S),
+%    stream:new(Head, fun() -> next_element(S#stream{req={Key, N + 1}, read=prev}) end).
 
 %%
 %%
 read_element(#stream{}=S) ->
    case eleveldb:iterator_move(S#stream.io, S#stream.read) of
       {ok, Key, Val} ->
-         {Key, dive_struct:decode(Val)};
+         {Key, Val};
       {ok,  Key} ->
          Key
    end.
