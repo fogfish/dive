@@ -54,8 +54,7 @@ create_iterator(FD, Opts) ->
 next_element(S) ->
    try
       next_element_unsafe(S)
-   catch _:Reason ->
-      io:format("=> ~p~n", [Reason]),
+   catch _:_Reason ->
       (catch eleveldb:iterator_close(S#stream.io)),
       stream:new()
    end.
@@ -63,11 +62,7 @@ next_element(S) ->
 %%
 %% full scan
 next_element_unsafe(#stream{pattern='_', read=undefined}=State) ->
-   next_element_unsafe(
-      State#stream{
-         read = first
-      }
-   );
+   next_element_unsafe(State#stream{read=first});
 
 next_element_unsafe(#stream{pattern='_'}=State) ->
    stream:new(
@@ -76,20 +71,105 @@ next_element_unsafe(#stream{pattern='_'}=State) ->
    );
 
 %%
-%% prefix scan
-next_element_unsafe(#stream{pattern={prefix, _Len, Pattern}, read=undefined}=State) ->
-   next_element_unsafe(State#stream{read=Pattern});
+%% partial match / prefix scan
+next_element_unsafe(#stream{pattern={'~', _Len, Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=Key});
 
-next_element_unsafe(#stream{pattern={prefix, Len, Pattern}}=State) ->
+next_element_unsafe(#stream{pattern={'~', Len, Key}}=State) ->
    case read_element(State) of
-      {<<Pattern:Len/binary, _/binary>>, _} = Head ->
+      {<<Key:Len/binary, _/binary>>, _} = Head ->
          stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
-      <<Pattern:Len/binary, _/binary>> = Head ->
+      <<Key:Len/binary, _/binary>> = Head ->
          stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
       _ ->
          eleveldb:iterator_close(State#stream.io),
          stream:new()
+   end;
+
+%%
+%% full match / key scan
+next_element_unsafe(#stream{pattern={'=', _Len, Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=Key});
+
+next_element_unsafe(#stream{pattern={'=', _Len, Key}}=State) ->
+   case read_element(State) of
+      {Key, _} = Head ->
+         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+      Key  when is_binary(Key) ->
+         stream:new(Key,  fun() -> next_element(State#stream{read=prefetch}) end);
+      _   ->
+         eleveldb:iterator_close(State#stream.io),
+         stream:new()
+   end;
+
+%%
+%% 
+next_element_unsafe(#stream{pattern={'>=', _Len, Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=Key});
+
+next_element_unsafe(#stream{pattern={'>=', _Len, _Key}}=State) ->
+   case read_element(State) of
+      {_, _} = Head ->
+         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+      Head when is_binary(Head) ->
+         stream:new(Head,  fun() -> next_element(State#stream{read=prefetch}) end);
+      _   ->
+         eleveldb:iterator_close(State#stream.io),
+         stream:new()
+   end;
+
+%%
+%%
+next_element_unsafe(#stream{pattern={'=<', _Len, _Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=first});
+
+next_element_unsafe(#stream{pattern={'=<', _Len, Key0}}=State) ->
+   case read_element(State) of
+      {Key, _} = Head when Key =< Key0 ->
+         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+      Key when is_binary(Key), Key =< Key0 ->
+         stream:new(Key,  fun() -> next_element(State#stream{read=prefetch}) end);
+      _   ->
+         eleveldb:iterator_close(State#stream.io),
+         stream:new()
+   end;
+
+%%
+%%
+next_element_unsafe(#stream{pattern={'>', _Len, Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=Key});
+
+next_element_unsafe(#stream{pattern={'>', _Len, Key}}=State) ->
+   case read_element(State) of
+      {Key, _} ->
+         next_element_unsafe(State);
+      Key when is_binary(Key) ->
+         next_element_unsafe(State);
+      {_, _} = Head ->
+         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+      Head when is_binary(Head) ->
+         stream:new(Head,  fun() -> next_element(State#stream{read=prefetch}) end);
+      _   ->
+         eleveldb:iterator_close(State#stream.io),
+         stream:new()
+   end;
+
+%%
+%%
+next_element_unsafe(#stream{pattern={'<', _Len, _Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=first});
+
+next_element_unsafe(#stream{pattern={'<', _Len, Key0}}=State) ->
+   case read_element(State) of
+      {Key, _} = Head when Key < Key0 ->
+         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+      Key when is_binary(Key), Key < Key0 ->
+         stream:new(Key,  fun() -> next_element(State#stream{read=prefetch}) end);
+      _   ->
+         eleveldb:iterator_close(State#stream.io),
+         stream:new()
    end.
+
 
 % %%
 % %% range scan

@@ -318,12 +318,19 @@ delete_(Pid, Key, Flag) ->
 
 %%
 %% match key pattern
+%%    ~    while prefix match
+%%    =    while key equals
+%%   >=
+%%   =<
+%%    >    while great   (Key, inf]
+%%    <    while smaller [nil, Key)
+
 -spec(match/2 :: (fd(), key()) -> datum:stream()).
 
-match(Pid, Prefix)
+match(Pid, {Pred, Prefix})
  when is_pid(Pid), is_binary(Prefix) ->
    {ok, Fd} = pipe:call(Pid, fd, ?CONFIG_TIMEOUT),
-   dive_stream:new(Fd, {prefix, byte_size(Prefix), Prefix}, []);
+   dive_stream:new(Fd, {Pred, byte_size(Prefix), Prefix}, []);
 
 match(Pid, '_') 
  when is_pid(Pid) ->
