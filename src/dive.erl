@@ -214,7 +214,7 @@ set_(Pid, Key, Val, Flag) ->
 -spec(add/3  :: (fd(), key(), val()) -> ok | {error, any()}).
 -spec(add/4  :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-add(#dd{pid = Pid}, Key, Val) ->
+add(Pid, Key, Val) ->
    add(Pid, Key, Val, ?CONFIG_TIMEOUT).
 
 add(#dd{pid = Pid}, Key, Val, Timeout)
