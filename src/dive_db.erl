@@ -31,7 +31,8 @@
 %% internal state
 -record(fsm, {
    fd    = undefined :: any()    %% file descriptor
-  ,file  = undefined :: list()
+  ,file  = undefined :: list()   %%
+  ,cache = undefined :: pid()    %% database side-cache
   ,opts  = []        :: list()   %% list of file bucket options
   ,pids  = []        :: [pid()]  %% list of client pids
 }).
@@ -42,6 +43,8 @@
 %%%
 %%%----------------------------------------------------------------------------   
 
+%%
+%%
 start_link(Opts) ->
    pipe:start_link(?MODULE, [Opts], []).
 
@@ -49,29 +52,42 @@ init([Opts]) ->
    _ = erlang:process_flag(trap_exit, true),
    {ok, handle, init(Opts, #fsm{})}.
 
-init([{owner, Pid} | Opts], S) ->
+init([{owner, Pid} | Opts], State) ->
    Ref  = erlang:monitor(process, Pid),
-   init(Opts, S#fsm{pids=[{Pid, Ref}]});
+   init(Opts, State#fsm{pids=[{Pid, Ref}]});
 
-init([{file, File} | Opts], S) ->
+init([{file, File} | Opts], State) ->
+   %% dive database is a singleton on file name
    pns:register(dive, File, self()),
-   init(Opts, S#fsm{file=File});
+   init(Opts, State#fsm{file=File});
 
-init([_| Opts], S) ->
-   init(Opts, S);
+init([{cache, Cache} | Opts], State) ->
+   {ok, Pid} = cache:start_link(Cache),
+   init(Opts, State#fsm{cache=Pid});
 
-init([], S) ->
-   {ok, FD} = eleveldb:open(S#fsm.file, db_opts(S#fsm.opts)),
-   S#fsm{
-      fd = FD
-   }.
+init([_| Opts], State) ->
+   init(Opts, State);
 
-free(_, S) ->
-   eleveldb:close(S#fsm.fd),
+init([], State) ->
+   {ok, FD} = eleveldb:open(
+      State#fsm.file
+     ,db_opts(State#fsm.opts)
+   ),
+   State#fsm{fd = FD}.
+
+%%
+%%
+free(_, #fsm{fd = FD, cache = Cache}) ->
+   eleveldb:close(FD),
+   cache:drop(Cache),
    ok.
 
+%%
+%%
 ioctl(fd, #fsm{fd=X}) ->
    X;
+ioctl(cache, #fsm{cache=X}) ->
+   X;   
 ioctl(_, _) ->
    throw(not_supported).
 
@@ -120,80 +136,9 @@ handle({'DOWN', _Ref, _Type, Pid, _Reason}, _Tx, S) ->
 handle({'EXIT', _, _}, _Tx, S) ->
    {stop, normal, S};
 
-handle(fd, Tx, State) ->
-   pipe:ack(Tx, {ok, State#fsm.fd}),
-   {next_state, handle, State};
 
-handle({put, Key, Val, Sync}, Tx, State) ->
-   pipe:ack(Tx, 
-      eleveldb:put(State#fsm.fd, Key, Val, [{sync, Sync}])
-   ),
-   {next_state, handle, State};
-
-handle({get, Key}, Tx, State) ->
-   Result = case eleveldb:get(State#fsm.fd, Key, []) of
-      {ok, Val} ->
-         {ok, Val};
-      not_found ->
-         {error, not_found};
-      {error,_} = Error ->
-         Error
-   end,
-   pipe:ack(Tx, Result),
-   {next_state, handle, State};
-
-handle({remove, Key, Sync}, Tx, State) ->
-   pipe:ack(Tx,
-      eleveldb:delete(State#fsm.fd, Key, [{sync, Sync}])
-   ),
-   {next_state, handle, State};
-
-handle({add, Key, Val, Sync}, Tx, State) ->
-   Result = case eleveldb:get(State#fsm.fd, Key, []) of
-      {ok,_Val} ->
-         {error, conflict};
-      not_found ->
-         eleveldb:put(State#fsm.fd, Key, Val, [{sync, Sync}]);
-      {error,_} = Error ->
-         Error
-   end,
-   pipe:ack(Tx, Result),
-   {next_state, handle, State};
-
-handle({replace, Key, Val, Sync}, Tx, State) ->
-   Result = case eleveldb:get(State#fsm.fd, Key, []) of
-      {ok,_Val} ->
-         eleveldb:put(State#fsm.fd, Key, Val, [{sync, Sync}]);
-      not_found ->
-         {error, not_found};
-      {error,_} = Error ->
-         Error
-   end,
-   pipe:ack(Tx, Result),
-   {next_state, handle, State};
-
-handle({append, Key, Tail, Sync}, Tx, State) ->
-   Result = case eleveldb:get(State#fsm.fd, Key, []) of
-      {ok, Head} ->
-         eleveldb:put(State#fsm.fd, Key, <<Head/binary, Tail/binary>>, [{sync, Sync}]);
-      not_found ->
-         eleveldb:put(State#fsm.fd, Key, Tail, [{sync, Sync}]);
-      {error,_} = Error ->
-         Error
-   end,
-   pipe:ack(Tx, Result),
-   {next_state, handle, State};
-
-handle({prepend, Key, Head, Sync}, Tx, State) ->
-   Result = case eleveldb:get(State#fsm.fd, Key, []) of
-      {ok, Tail} ->
-         eleveldb:put(State#fsm.fd, Key, <<Head/binary, Tail/binary>>, [{sync, Sync}]);
-      not_found ->
-         eleveldb:put(State#fsm.fd, Key, Head, [{sync, Sync}]);
-      {error,_} = Error ->
-         Error
-   end,
-   pipe:ack(Tx, Result),
+handle({apply, Fun}, Tx, State) ->
+   pipe:ack(Tx, Fun()),
    {next_state, handle, State};
 
 handle(Msg, _Tx, S) ->

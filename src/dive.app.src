@@ -1,7 +1,7 @@
 {application, dive,
    [
       {description, "data structure storage"},
-      {vsn,         "0.4.0"},
+      {vsn,         "1.0.0"},
       {modules,     []},
       {registered,  []},
       {applications,[

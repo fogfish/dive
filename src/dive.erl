@@ -4,50 +4,34 @@
 -export([start/0]).
 -export([
    new/1
-  ,new/2
   ,free/1
+  ,apply/2
+  ,apply_/2
    %% hashmap interface
   ,put/3
-  ,put/4
   ,put_/3
-  ,put_/4
   ,get/2
-  ,get/3
   ,remove/2
-  ,remove/3
   ,remove_/2
-  ,remove_/3
    %% memcached-like interface
   ,set/3
-  ,set/4
   ,set_/3
-  ,set_/4
   ,add/3
-  ,add/4
   ,add_/3
-  ,add_/4
   ,replace/3
-  ,replace/4
   ,replace_/3
-  ,replace_/4
   ,append/3
-  ,append/4
   ,append_/3
-  ,append_/4
   ,prepend/3
-  ,prepend/4
   ,prepend_/3
-  ,prepend_/4
   ,delete/2
-  ,delete/3
   ,delete_/2
-  ,delete_/3
-   % match
+   % match interface
   ,match/2
 ]).
 
 %%
--type(fd()  :: pid()).
+-type(fd()  :: #dd{}).
 -type(key() :: binary()).
 -type(val() :: binary() | list()).
 
@@ -61,48 +45,59 @@ start() ->
 
 %%
 %% create new database instance
+%%  Options:
+%%    {file, list()} - name of folder to maintain database
+%%    {owner, pid()} - database owner process
+%%    {cache, pid()} - database in-memory cache  
+%%    ...
+%%    see eleveldb options
 -spec(new/1 :: (list()) -> {ok, fd()} | {error, any()}).
--spec(new/2 :: (atom(), list()) -> {ok, fd()} | {error, any()}).
 
 new(Opts) ->
-   make(Opts).
-
-new(Name, Opts) ->
-   try
-      {ok, Ref} = new(Opts),
-      ok = pns:register(dive, Name, Ref),
-      {ok, Ref}
-   catch _:{batch, {error,Reason}} ->
-      {error, Reason}
-   end. 
-
-make(Opts) ->
    try
       File = opts:val(file, Opts),
-      {ok, Pid} = case pns:whereis(dive, File) of
-         undefined ->
-            supervisor:start_child(dive_db_sup, [Opts]);
-         X         ->
-            {ok, X}
-      end,
-      pipe:call(Pid, {init, self()}),
-      {ok, Fd} = pipe:call(Pid, fd, ?CONFIG_TIMEOUT),
-      {ok, #dd{fd = Fd, pid = Pid}}
-   catch _:{batch, {error,Reason}} ->
+      {ok, Pid} = ensure(File, Opts), 
+      {ok,   _} = pipe:call(Pid, {init, self()}),
+      FD    = pipe:ioctl(Pid, fd),
+      Cache = pipe:ioctl(Pid, cache),
+      {ok, #dd{fd = FD, pid = Pid, cache = Cache}}
+   catch _:{badmatch, {error,Reason}} ->
       {error, Reason}
    end. 
+
+%%
+%% ensure database leader process
+ensure(File, Opts) ->
+   case pns:whereis(dive, File) of
+      undefined ->
+         supervisor:start_child(dive_db_sup, [Opts]);
+      Pid       ->
+         {ok, Pid}
+   end.
 
 %%
 %% release database instance
 -spec(free/1 :: (pid()) -> ok).
 
-free(Pid)
+free(#dd{pid = Pid})
  when is_pid(Pid) ->
-   pipe:call(Pid, {free, self()});
+   pipe:call(Pid, {free, self()}).
 
-free(Uid) ->
-   free(which(Uid)).
+%%
+%% execute closure
+-spec(apply/2 :: (fd(), function()) -> ok | {ok, any()} | {error, any()}).
 
+apply(Pid, Fun)
+ when is_function(Fun) ->
+   request(Pid, {apply, Fun}, infinity).
+
+%%
+%% execute closure asynchronously
+-spec(apply_/2  :: (fd(), function()) -> ok).
+
+apply_(Pid, Fun)
+ when is_function(Fun) ->
+   request(Pid, {apply, Fun}, false).
 
 %%%----------------------------------------------------------------------------   
 %%%
@@ -113,72 +108,71 @@ free(Uid) ->
 %%
 %% synchronous storage put
 -spec(put/3 :: (fd(), key(), val()) -> ok | {error, any()}).
--spec(put/4 :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-put(#dd{fd = Fd}, Key, Val) ->
-   eleveldb:put(Fd, Key, Val, [{sync, true}]).
-
-% put(Pid, Key, Val) ->
-%    put(Pid, Key, Val, ?CONFIG_TIMEOUT).
-
-put(#dd{pid = Pid}, Key, Val, Timeout)
+put(#dd{fd = FD, cache = undefined}, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {put, Key, Val, true}, Timeout).
+   eleveldb:put(FD, Key, Val, [{sync, true}]);
+
+put(#dd{fd = FD, cache = Cache}, Key, Val)
+ when is_binary(Key), is_binary(Val) ->
+   cache:put(Cache, Key, Val),
+   eleveldb:put(FD, Key, Val, [{sync, true}]).   
 
 %%
 %% asynchronous storage put
 -spec(put_/3 :: (fd(), key(), val()) -> ok | reference()).
--spec(put_/4 :: (fd(), key(), val(), true | false) -> ok | reference()).
 
-put_(#dd{pid = Pid}, Key, Val) ->
-   put_(Pid, Key, Val, true).
-
-put_(#dd{pid = Pid}, Key, Val, Flag)
+put_(#dd{fd = Fd, cache = undefined}, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {put, Key, Val, false}, Flag).
+   eleveldb:put(Fd, Key, Val, [{sync, false}]);
+
+put_(#dd{fd = FD, cache = Cache}, Key, Val)
+ when is_binary(Key), is_binary(Val) ->
+   cache:put_(Cache, Key, Val),
+   eleveldb:put(FD, Key, Val, [{sync, false}]).   
 
 %%
 %% synchronous get entity from storage
 -spec(get/2 :: (fd(), key()) -> {ok, val()} | {error, any()}).
--spec(get/3 :: (fd(), key(), timeout()) -> {ok, val()} | {error, any()}).
 
-get(#dd{fd = Fd}, Key) ->
-   case eleveldb:get(Fd, Key, []) of
-      {ok, Val} ->
-         {ok, Val};
-      not_found ->
-         {error, not_found};
-      {error,_} = Error ->
-         Error
-   end.
-
-get(#dd{pid = Pid}, Key, Timeout)
+get(#dd{fd = FD, cache = undefined}, Key)
  when is_binary(Key) ->
-   request(Pid, {get, Key}, Timeout).
+   db_get(FD, Key);
+
+get(#dd{fd = FD, cache = Cache}, Key)
+ when is_binary(Key) ->
+   case cache:get(Cache, Key) of
+      undefined ->
+         db_get(FD, Key);
+      Val ->
+         {ok, Val}
+   end.
 
 %%
 %% synchronous remove entity from storage
 -spec(remove/2 :: (fd(), key()) -> ok | {error, any()}).
--spec(remove/3 :: (fd(), key(), timeout()) -> ok | {error, any()}).
 
-remove(Pid, Key) ->
-   remove(Pid, Key, ?CONFIG_TIMEOUT).
-
-remove(Pid, Key, Timeout)
+remove(#dd{fd = FD, cache = undefined}, Key)
  when is_binary(Key) ->
-   request(Pid, {remove, Key, true}, Timeout).
+   eleveldb:delete(FD, Key, [{sync, true}]);
+
+remove(#dd{fd = FD, cache = Cache}, Key)
+ when is_binary(Key) ->
+   cache:remove(Cache, Key),
+   eleveldb:delete(FD, Key, [{sync, true}]).
 
 %%
 %% asynchronous remove key from dataset
 -spec(remove_/2 :: (fd(), key()) -> ok | reference()).
--spec(remove_/3 :: (fd(), key(), true | false) -> ok | reference()).
 
-remove_(Pid, Key) ->
-   remove_(Pid, Key, true).
-
-remove_(Pid, Key, Flag)
+remove_(#dd{fd = FD, cache = undefined}, Key)
  when is_binary(Key) ->
-   request(Pid, {remove, Key, false}, Flag).
+   eleveldb:delete(FD, Key, [{sync, false}]);
+
+remove_(#dd{fd = FD, cache = Cache}, Key)
+ when is_binary(Key) ->
+   cache:remove_(Cache, Key),
+   eleveldb:delete(FD, Key, [{sync, false}]).
 
 
 %%%----------------------------------------------------------------------------   
@@ -190,143 +184,186 @@ remove_(Pid, Key, Flag)
 %%
 %% synchronous store key/val
 -spec(set/3  :: (fd(), key(), val()) -> ok | {error, any()}).
--spec(set/4  :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
 set(Pid, Key, Val) ->
-   set(Pid, Key, Val, ?CONFIG_TIMEOUT).
-
-set(Pid, Key, Val, Timeout) ->
-   put(Pid, Key, Val, Timeout).
+   put(Pid, Key, Val).
 
 %%
 %% asynchronous store key/val
 -spec(set_/3 :: (fd(), key(), val()) -> ok | reference()).
--spec(set_/4 :: (fd(), key(), val(), true | false) -> ok | reference()).
 
 set_(Pid, Key, Val) ->
-   set_(Pid, Key, Val, true).
-
-set_(Pid, Key, Val, Flag) ->
-   put_(Pid, Key, Val, Flag).
+   put_(Pid, Key, Val).
 
 %%
 %% synchronous store key/val only if storage does not already hold data for this key
 -spec(add/3  :: (fd(), key(), val()) -> ok | {error, any()}).
--spec(add/4  :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-add(Pid, Key, Val) ->
-   add(Pid, Key, Val, ?CONFIG_TIMEOUT).
-
-add(#dd{pid = Pid}, Key, Val, Timeout)
+add(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {add, Key, Val, true}, Timeout).
+   dive:apply(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {error, not_found} ->
+               dive:put(Pid, Key, Val);
+            {ok, _} ->
+               {error, conflict};
+            Error   ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% asynchronous store key/val only if cache does not already hold data for this key
 -spec(add_/3  :: (fd(), key(), val()) -> ok | reference()).
--spec(add_/4  :: (fd(), key(), val(), true | false) -> ok | reference()).
 
-add_(#dd{pid = Pid}, Key, Val) ->
-   add_(Pid, Key, Val, true).
-
-add_(#dd{pid = Pid}, Key, Val, Flag)
+add_(#dd{pid = Pid}, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {add, Key, Val, false}, Flag).
+   dive:apply_(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {error, not_found} ->
+               dive:put_(Pid, Key, Val);
+            {ok, _} ->
+               {error, conflict};
+            Error   ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% synchronous store key/val only if cache does hold data for this key
 -spec(replace/3  :: (fd(), key(), val()) -> ok | {error, any()}).
--spec(replace/4  :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-replace(Pid, Key, Val) ->
-   replace(Pid, Key, Val, ?CONFIG_TIMEOUT).
-
-replace(Pid, Key, Val, Timeout)
+replace(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {replace, Key, Val, true}, Timeout).
+   dive:apply(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {ok, _} ->
+               dive:put(Pid, Key, Val);
+            Error   ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% asynchronous store key/val only if cache does hold data for this key
 -spec(replace_/3  :: (fd(), key(), val()) -> ok | reference()).
--spec(replace_/4  :: (fd(), key(), val(), true | false) -> ok | reference()).
 
-replace_(Pid, Key, Val) ->
-   replace_(Pid, Key, Val, true).
-
-replace_(Pid, Key, Val, Flag)
+replace_(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {replace, Key, Val, false}, Flag).
+   dive:apply(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {ok, _} ->
+               dive:put_(Pid, Key, Val);
+            Error   ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% synchronously add data to existing key after existing data, the operation do not prolong entry ttl
 -spec(append/3  :: (fd(), key(), val()) -> ok | {error, any()}).
--spec(append/4  :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-append(Pid, Key, Val) ->
-   append(Pid, Key, Val, ?CONFIG_TIMEOUT).
-
-append(Pid, Key, Val, Timeout)
+append(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {append, Key, Val, true}, Timeout).
+   dive:apply(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {ok, Head} ->
+               dive:put(Pid, Key, <<Head/binary, Val/binary>>);
 
+            {error, not_found} ->
+               dive:put(Pid, Key, Val);
+
+            Error ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% asynchronously add data to existing key after existing data, the operation do not prolong entry ttl
 -spec(append_/3  :: (fd(), key(), val()) -> ok | reference()).
--spec(append_/4  :: (fd(), key(), val(), true | false) -> ok | reference()).
 
-append_(Pid, Key, Val) ->
-   append_(Pid, Key, Val, true).
-
-append_(Pid, Key, Val, Flag)
+append_(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {append, Key, Val, false}, Flag).
+   dive:apply_(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {ok, Head} ->
+               dive:put_(Pid, Key, <<Head/binary, Val/binary>>);
+
+            {error, not_found} ->
+               dive:put_(Pid, Key, Val);
+
+            Error ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% synchronously add data to existing key before existing data
 -spec(prepend/3  :: (fd(), key(), val()) -> ok | {error, any()}).
--spec(prepend/4  :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-prepend(Pid, Key, Val) ->
-   prepend(Pid, Key, Val, ?CONFIG_TIMEOUT).
-
-prepend(Pid, Key, Val, Timeout)
+prepend(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {prepend, Key, Val, true}, Timeout).
+   dive:apply(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {ok, Head} ->
+               dive:put(Pid, Key, <<Val/binary, Head/binary>>);
+
+            {error, not_found} ->
+               dive:put(Pid, Key, Val);
+
+            Error ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% asynchronously add data to existing key before existing data
 -spec(prepend_/3  :: (fd(), key(), val()) -> ok | reference()).
--spec(prepend_/4  :: (fd(), key(), val(), true | false) -> ok | reference()).
 
-prepend_(Pid, Key, Val) ->
-   prepend_(Pid, Key, Val, true).
-
-prepend_(Pid, Key, Val, Flag)
+prepend_(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   request(Pid, {prepend, Key, Val, false}, Flag).
+   dive:apply_(Pid,
+      fun() ->
+         case dive:get(Pid, Key) of
+            {ok, Head} ->
+               dive:put_(Pid, Key, <<Val/binary, Head/binary>>);
+
+            {error, not_found} ->
+               dive:put_(Pid, Key, Val);
+
+            Error ->
+               Error
+         end
+      end
+   ).
 
 %%
 %% synchronous remove entry from cache
 -spec(delete/2  :: (fd(), key()) -> ok | {error, any()}).
--spec(delete/3  :: (fd(), key(), timeout()) -> ok | {error, any()}).
 
 delete(Pid, Key) ->
-   delete(Pid, Key, ?CONFIG_TIMEOUT).
-
-delete(Pid, Key, Timeout) ->
-   remove(Pid, Key, Timeout).
+   remove(Pid, Key).
 
 %%
 %% asynchronous remove entry from cache
 -spec(delete_/2 :: (fd(), key()) -> ok | reference()).
--spec(delete_/3 :: (fd(), key(), true | false) -> ok | reference()).
 
 delete_(Pid, Key) ->
-   delete_(Pid, Key, true).
-
-delete_(Pid, Key, Flag) ->
-   remove_(Pid, Key, Flag).
+   remove_(Pid, Key).
 
 %%
 %% match key pattern
@@ -336,21 +373,14 @@ delete_(Pid, Key, Flag) ->
 %%   =<
 %%    >    while great   (Key, inf]
 %%    <    while smaller [nil, Key)
-
 -spec(match/2 :: (fd(), key()) -> datum:stream()).
 
-match(Pid, {Pred, Prefix})
- when is_pid(Pid), is_binary(Prefix) ->
-   {ok, Fd} = pipe:call(Pid, fd, ?CONFIG_TIMEOUT),
-   dive_stream:new(Fd, {Pred, byte_size(Prefix), Prefix}, []);
+match(#dd{fd = FD}, {Pred, Prefix})
+ when is_binary(Prefix) ->
+   dive_stream:new(FD, {Pred, byte_size(Prefix), Prefix}, []);
 
-match(Pid, '_') 
- when is_pid(Pid) ->
-   {ok, Fd} = pipe:call(Pid, fd, ?CONFIG_TIMEOUT),
-   dive_stream:new(Fd, '_', []);
-
-match(Uid, Prefix) ->
-   match(which(Uid), Prefix).
+match(#dd{fd = FD}, '_') ->
+   dive_stream:new(FD, '_', []).
 
 
 %%%----------------------------------------------------------------------------   
@@ -361,28 +391,27 @@ match(Uid, Prefix) ->
 
 %%
 %%
-which(Name) -> 
-   case pns:whereis(dive, Name) of
-      Pid when is_pid(Pid) ->
-         Pid;
-      _ ->
-         exit(no_proc)
+db_get(FD, Key) ->
+   case eleveldb:get(FD, Key, []) of
+      {ok, Val} ->
+         {ok, Val};
+      not_found ->
+         {error, not_found};
+      {error,_} = Error ->
+         Error
    end.
 
 %%
 %% request
-request(Pid, Req, true)
+request(#dd{pid = Pid}, Req, true)
  when is_pid(Pid) ->
    pipe:cast(Pid, Req);
 
-request(Pid, Req, false)
+request(#dd{pid = Pid}, Req, false)
  when is_pid(Pid) ->
    pipe:send(Pid, Req), ok;
 
-request(Pid, Req, Timeout)
+request(#dd{pid = Pid}, Req, Timeout)
  when is_pid(Pid) ->
-   pipe:call(Pid, Req, Timeout);
-
-request(Uid, Key, Flag) ->
-   request(which(Uid), Key, Flag).
+   pipe:call(Pid, Req, Timeout).
 

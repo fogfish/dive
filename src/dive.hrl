@@ -1,9 +1,8 @@
 
--define(CONFIG_TIMEOUT, infinity).
-
 %%
-%% dive file description
+%% dive database descriptor
 -record(dd, {
-   fd  = undefined :: any() %% file description
-  ,pid = undefined :: any() %% leader process
+   fd    = undefined :: any() %% file description
+  ,pid   = undefined :: pid() %% leader process
+  ,cache = undefined :: pid() %% cache process
 }).
