@@ -26,7 +26,7 @@ VMI  =
 NET ?= en0
 
 ## root path to benchmark framework
-BB     = ../basho_bench
+BB     = ../../erlang/basho_bench
 SSHENV = /tmp/ssh-agent.conf
 ADDR   = $(shell ifconfig ${NET} | sed -En 's/.*inet (addr:)?(([0-9]*\.){3}[0-9]*).*/\2/p')
 

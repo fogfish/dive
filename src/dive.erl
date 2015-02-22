@@ -85,7 +85,9 @@ make(Opts) ->
          X         ->
             {ok, X}
       end,
-      pipe:call(Pid, {init, self()})
+      pipe:call(Pid, {init, self()}),
+      {ok, Fd} = pipe:call(Pid, fd, ?CONFIG_TIMEOUT),
+      {ok, #dd{fd = Fd, pid = Pid}}
    catch _:{batch, {error,Reason}} ->
       {error, Reason}
    end. 
@@ -113,8 +115,11 @@ free(Uid) ->
 -spec(put/3 :: (fd(), key(), val()) -> ok | {error, any()}).
 -spec(put/4 :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-put(Pid, Key, Val) ->
-   put(Pid, Key, Val, ?CONFIG_TIMEOUT).
+put(#dd{fd = Fd}, Key, Val) ->
+   eleveldb:put(Fd, Key, Val, [{sync, true}]).
+
+% put(Pid, Key, Val) ->
+%    put(Pid, Key, Val, ?CONFIG_TIMEOUT).
 
 put(Pid, Key, Val, Timeout)
  when is_binary(Key), is_binary(Val) ->

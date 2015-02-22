@@ -13,8 +13,8 @@
 
 new(_) ->
    _ = dive:start(),
-   {ok, Pid} = dive:new([{file, basho_bench_config:get(db, "/tmp/dive")}]),
-   {ok, dive:fd(Pid)}.
+   {ok, Pid} = dive:new([{file, basho_bench_config:get(db, "/tmp/dive")}]).
+   % {ok, dive:fd(Pid)}.
 
 %%%------------------------------------------------------------------
 %%%

@@ -1,7 +1,7 @@
 {code_paths, [
   "./ebin"
- ,"./deps/cache"
- ,"./deps/datum"
+ % ,"./deps/cache"
+ % ,"./deps/datum"
  ,"./deps/eleveldb"
  ,"./deps/feta"
  ,"./deps/pipe"
@@ -24,8 +24,8 @@
 
 {operations, [
    {put,    5}
-  ,{get,    5}
-  ,{remove, 1}
+  % ,{get,    5}
+  % ,{remove, 1}
 ]}.
 
 {db,  "/tmp/dive"}.
