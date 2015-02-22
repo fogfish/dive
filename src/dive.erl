@@ -121,7 +121,7 @@ put(#dd{fd = Fd}, Key, Val) ->
 % put(Pid, Key, Val) ->
 %    put(Pid, Key, Val, ?CONFIG_TIMEOUT).
 
-put(Pid, Key, Val, Timeout)
+put(#dd{pid = Pid}, Key, Val, Timeout)
  when is_binary(Key), is_binary(Val) ->
    request(Pid, {put, Key, Val, true}, Timeout).
 
@@ -130,10 +130,10 @@ put(Pid, Key, Val, Timeout)
 -spec(put_/3 :: (fd(), key(), val()) -> ok | reference()).
 -spec(put_/4 :: (fd(), key(), val(), true | false) -> ok | reference()).
 
-put_(Pid, Key, Val) ->
+put_(#dd{pid = Pid}, Key, Val) ->
    put_(Pid, Key, Val, true).
 
-put_(Pid, Key, Val, Flag)
+put_(#dd{pid = Pid}, Key, Val, Flag)
  when is_binary(Key), is_binary(Val) ->
    request(Pid, {put, Key, Val, false}, Flag).
 
@@ -142,10 +142,17 @@ put_(Pid, Key, Val, Flag)
 -spec(get/2 :: (fd(), key()) -> {ok, val()} | {error, any()}).
 -spec(get/3 :: (fd(), key(), timeout()) -> {ok, val()} | {error, any()}).
 
-get(Pid, Key) ->
-   get(Pid, Key, ?CONFIG_TIMEOUT).
+get(#dd{fd = Fd}, Key) ->
+   case eleveldb:get(Fd, Key, []) of
+      {ok, Val} ->
+         {ok, Val};
+      not_found ->
+         {error, not_found};
+      {error,_} = Error ->
+         Error
+   end.
 
-get(Pid, Key, Timeout)
+get(#dd{pid = Pid}, Key, Timeout)
  when is_binary(Key) ->
    request(Pid, {get, Key}, Timeout).
 
@@ -207,10 +214,10 @@ set_(Pid, Key, Val, Flag) ->
 -spec(add/3  :: (fd(), key(), val()) -> ok | {error, any()}).
 -spec(add/4  :: (fd(), key(), val(), timeout()) -> ok | {error, any()}).
 
-add(Pid, Key, Val) ->
+add(#dd{pid = Pid}, Key, Val) ->
    add(Pid, Key, Val, ?CONFIG_TIMEOUT).
 
-add(Pid, Key, Val, Timeout)
+add(#dd{pid = Pid}, Key, Val, Timeout)
  when is_binary(Key), is_binary(Val) ->
    request(Pid, {add, Key, Val, true}, Timeout).
 
@@ -219,10 +226,10 @@ add(Pid, Key, Val, Timeout)
 -spec(add_/3  :: (fd(), key(), val()) -> ok | reference()).
 -spec(add_/4  :: (fd(), key(), val(), true | false) -> ok | reference()).
 
-add_(Pid, Key, Val) ->
+add_(#dd{pid = Pid}, Key, Val) ->
    add_(Pid, Key, Val, true).
 
-add_(Pid, Key, Val, Flag)
+add_(#dd{pid = Pid}, Key, Val, Flag)
  when is_binary(Key), is_binary(Val) ->
    request(Pid, {add, Key, Val, false}, Flag).
 
