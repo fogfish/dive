@@ -143,7 +143,7 @@ get(#dd{fd = FD, cache = Cache}, Key)
  when is_binary(Key) ->
    case cache:get(Cache, Key) of
       undefined ->
-         db_get(FD, Key);
+         db_get(FD, Cache, Key);
       Val ->
          {ok, Val}
    end.
@@ -400,6 +400,18 @@ db_get(FD, Key) ->
       {error,_} = Error ->
          Error
    end.
+
+db_get(FD, Cache, Key) ->
+   case eleveldb:get(FD, Key, []) of
+      {ok, Val} ->
+         cache:put(Cache, Key, Val),
+         {ok, Val};
+      not_found ->
+         {error, not_found};
+      {error,_} = Error ->
+         Error
+   end.
+
 
 %%
 %% request

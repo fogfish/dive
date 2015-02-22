@@ -138,7 +138,11 @@ handle({'EXIT', _, _}, _Tx, S) ->
 
 
 handle({apply, Fun}, Tx, State) ->
-   pipe:ack(Tx, Fun()),
+   try
+      pipe:ack(Tx, Fun())
+   catch _:_ ->
+      pipe:ack(Tx, {error, abort})      
+   end,
    {next_state, handle, State};
 
 handle(Msg, _Tx, S) ->
