@@ -69,6 +69,9 @@ init([_| Opts], State) ->
    init(Opts, State);
 
 init([], State) ->
+   ok = filelib:ensure_dir(
+      filename:join([State#fsm.file, "README"])
+   ),
    {ok, FD} = eleveldb:open(
       State#fsm.file
      ,db_opts(State#fsm.opts)

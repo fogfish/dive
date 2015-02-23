@@ -30,6 +30,8 @@
   ,match/2
 ]).
 
+%% @todo -> remove put_ / remove_ -> replace with i/o flag (sync)
+
 %%
 -type(fd()  :: #dd{}).
 -type(key() :: binary()).
