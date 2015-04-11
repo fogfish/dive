@@ -253,10 +253,8 @@ next_element_unsafe(#stream{pattern={'<', _Len, Key0}}=State) ->
 %%
 %%
 read_element(#stream{}=S) ->
-   io:format("==> ~p~n", [S#stream.read]),
    case eleveldb:iterator_move(S#stream.io, S#stream.read) of
       {ok, Key, Val} ->
-         io:format("==> ~p ~p~n", [Key, Val]),
          {Key, Val};
       {ok,  Key} ->
          Key
