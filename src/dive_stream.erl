@@ -125,7 +125,7 @@ next_element_unsafe(#stream{pattern={'=<', _Len, Key}, read=undefined}=State) ->
 
 next_element_unsafe(#stream{pattern={'=<', _Len, Key0}}=State) ->
    case read_element(State) of
-      {Key, _} = Head when Key =< Key0 ->
+      {Key, _} = Head ->
          stream:new(Head, fun() -> next_element(State#stream{read=prev}) end);
       Key when is_binary(Key), Key =< Key0 ->
          stream:new(Key,  fun() -> next_element(State#stream{read=prev}) end);
@@ -161,7 +161,7 @@ next_element_unsafe(#stream{pattern={'<', _Len, Key}, read=undefined}=State) ->
 
 next_element_unsafe(#stream{pattern={'<', _Len, Key0}}=State) ->
    case read_element(State) of
-      {Key, _} = Head when Key < Key0 ->
+      {Key, _} = Head ->
          stream:new(Head, fun() -> next_element(State#stream{read=prev}) end);
       Key when is_binary(Key), Key < Key0 ->
          stream:new(Key,  fun() -> next_element(State#stream{read=prev}) end);
@@ -253,8 +253,10 @@ next_element_unsafe(#stream{pattern={'<', _Len, Key0}}=State) ->
 %%
 %%
 read_element(#stream{}=S) ->
+   io:format("==> ~p~n", [S#stream.read]),
    case eleveldb:iterator_move(S#stream.io, S#stream.read) of
       {ok, Key, Val} ->
+         io:format("==> ~p ~p~n", [Key, Val]),
          {Key, Val};
       {ok,  Key} ->
          Key
