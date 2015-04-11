@@ -120,15 +120,15 @@ next_element_unsafe(#stream{pattern={'>=', _Len, _Key}}=State) ->
 
 %%
 %%
-next_element_unsafe(#stream{pattern={'=<', _Len, _Key}, read=undefined}=State) ->
-   next_element_unsafe(State#stream{read=first});
+next_element_unsafe(#stream{pattern={'=<', _Len, Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=Key});
 
 next_element_unsafe(#stream{pattern={'=<', _Len, Key0}}=State) ->
    case read_element(State) of
       {Key, _} = Head when Key =< Key0 ->
-         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+         stream:new(Head, fun() -> next_element(State#stream{read=prev}) end);
       Key when is_binary(Key), Key =< Key0 ->
-         stream:new(Key,  fun() -> next_element(State#stream{read=prefetch}) end);
+         stream:new(Key,  fun() -> next_element(State#stream{read=prev}) end);
       _   ->
          eleveldb:iterator_close(State#stream.io),
          stream:new()
@@ -156,15 +156,15 @@ next_element_unsafe(#stream{pattern={'>', _Len, Key}}=State) ->
 
 %%
 %%
-next_element_unsafe(#stream{pattern={'<', _Len, _Key}, read=undefined}=State) ->
-   next_element_unsafe(State#stream{read=first});
+next_element_unsafe(#stream{pattern={'<', _Len, Key}, read=undefined}=State) ->
+   next_element_unsafe(State#stream{read=Key});
 
 next_element_unsafe(#stream{pattern={'<', _Len, Key0}}=State) ->
    case read_element(State) of
       {Key, _} = Head when Key < Key0 ->
-         stream:new(Head, fun() -> next_element(State#stream{read=prefetch}) end);
+         stream:new(Head, fun() -> next_element(State#stream{read=prev}) end);
       Key when is_binary(Key), Key < Key0 ->
-         stream:new(Key,  fun() -> next_element(State#stream{read=prefetch}) end);
+         stream:new(Key,  fun() -> next_element(State#stream{read=prev}) end);
       _   ->
          eleveldb:iterator_close(State#stream.io),
          stream:new()
