@@ -48,6 +48,7 @@ start() ->
 %%
 %% create new database instance
 %%  Options:
+%%    ephemeral | persistent
 %%    {file, list()} - name of folder to maintain database
 %%    {owner, pid()} - database owner process
 %%    {cache, pid()} - database in-memory cache  
@@ -57,22 +58,25 @@ start() ->
 
 new(Opts) ->
    try
-      File = opts:val(file, Opts),
-      {ok, Pid} = ensure(File, Opts), 
+      Type  = opts:get([ephemeral, persistent], Opts),
+      {ok, Pid} = ensure(Type, Opts), 
       {ok,   _} = pipe:call(Pid, {init, self()}),
       FD    = pipe:ioctl(Pid, fd),
       Cache = pipe:ioctl(Pid, cache),
-      {ok, #dd{fd = FD, pid = Pid, cache = Cache}}
+      {ok, #dd{type = Type, fd = FD, pid = Pid, cache = Cache}}
    catch _:{badmatch, {error,Reason}} ->
       {error, Reason}
    end. 
 
 %%
 %% ensure database leader process
-ensure(File, Opts) ->
+ensure(ephemeral,  Opts) ->
+   supervisor:start_child(dive_db_sup, [ephemeral, Opts]);
+ensure(persistent, Opts) ->
+   File = opts:val(file, Opts),
    case pns:whereis(dive, File) of
       undefined ->
-         supervisor:start_child(dive_db_sup, [Opts]);
+         supervisor:start_child(dive_db_sup, [persistent, Opts]);
       Pid       ->
          {ok, Pid}
    end.
@@ -108,74 +112,99 @@ apply_(Pid, Fun)
 %%%----------------------------------------------------------------------------   
 
 %%
-%% synchronous storage put
--spec(put/3 :: (fd(), key(), val()) -> ok | {error, any()}).
+%% put key/val
+-spec(put/3 :: (fd(), key(), val())  -> ok | {error, any()}).
+-spec(put_/3 :: (fd(), key(), val()) -> ok | {error, any()}).
 
-put(#dd{fd = FD, cache = undefined}, Key, Val)
+put(FD, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   eleveldb:put(FD, Key, Val, [{sync, true}]);
+   put_cache(FD, Key, Val, true),
+   put_btree(FD, Key, Val, true).
 
-put(#dd{fd = FD, cache = Cache}, Key, Val)
+put_(FD, Key, Val)
  when is_binary(Key), is_binary(Val) ->
-   cache:put(Cache, Key, Val),
-   eleveldb:put(FD, Key, Val, [{sync, true}]).   
+   put_cache(FD, Key, Val, false),
+   put_btree(FD, Key, Val, false).
 
-%%
-%% asynchronous storage put
--spec(put_/3 :: (fd(), key(), val()) -> ok | reference()).
+put_cache(#dd{cache = undefined}, _, _, _) ->
+   ok;
+put_cache(#dd{cache = Cache}, Key, Val,  true) ->
+   cache:put(Cache, Key, Val);
+put_cache(#dd{cache = Cache}, Key, Val, false) ->
+   cache:put_(Cache, Key, Val).
 
-put_(#dd{fd = Fd, cache = undefined}, Key, Val)
- when is_binary(Key), is_binary(Val) ->
-   eleveldb:put(Fd, Key, Val, [{sync, false}]);
-
-put_(#dd{fd = FD, cache = Cache}, Key, Val)
- when is_binary(Key), is_binary(Val) ->
-   cache:put_(Cache, Key, Val),
-   eleveldb:put(FD, Key, Val, [{sync, false}]).   
+put_btree(#dd{type = ephemeral,  fd = FD}, Key, Val, _) ->
+   true = ets:insert(FD, {Key, Val}), 
+   ok;
+put_btree(#dd{type = persistent, fd = FD}, Key, Val, Sync) ->
+   eleveldb:put(FD, Key, Val, [{sync, Sync}]).
 
 %%
 %% synchronous get entity from storage
 -spec(get/2 :: (fd(), key()) -> {ok, val()} | {error, any()}).
 
-get(#dd{fd = FD, cache = undefined}, Key)
+get(#dd{cache = undefined}=FD, Key)
  when is_binary(Key) ->
-   db_get(FD, Key);
+   get_btree(FD, Key);
 
-get(#dd{fd = FD, cache = Cache}, Key)
+get(#dd{cache = Cache}=FD, Key)
  when is_binary(Key) ->
    case cache:get(Cache, Key) of
       undefined ->
-         db_get(FD, Cache, Key);
+         get_btree(FD, Key);
       Val ->
          {ok, Val}
    end.
 
+get_btree(#dd{type = ephemeral, fd = FD}=DD, Key) ->
+   case ets:lookup(FD, Key) of
+      [{_, Val}] ->
+         put_cache(DD, Key, Val, true),
+         {ok, Val};
+      [] ->
+         {error, not_found}
+   end;
+
+get_btree(#dd{type = persistent, fd = FD}=DD, Key) ->
+   case eleveldb:get(FD, Key, []) of
+      {ok, Val} ->
+         put_cache(DD, Key, Val, true),
+         {ok, Val};
+      not_found ->
+         {error, not_found};
+      {error,_} = Error ->
+         Error
+   end.
+
 %%
-%% synchronous remove entity from storage
--spec(remove/2 :: (fd(), key()) -> ok | {error, any()}).
+%% remove entity from storage
+-spec(remove/2  :: (fd(), key()) -> ok | {error, any()}).
+-spec(remove_/2 :: (fd(), key()) -> ok | {error, any()}).
 
-remove(#dd{fd = FD, cache = undefined}, Key)
+
+remove(FD, Key)
  when is_binary(Key) ->
-   eleveldb:delete(FD, Key, [{sync, true}]);
+   remove_cache(FD, Key, true),
+   remove_btree(FD, Key, true).
 
-remove(#dd{fd = FD, cache = Cache}, Key)
+remove_(FD, Key)
  when is_binary(Key) ->
-   cache:remove(Cache, Key),
-   eleveldb:delete(FD, Key, [{sync, true}]).
+   remove_cache(FD, Key, false),
+   remove_btree(FD, Key, false).
 
-%%
-%% asynchronous remove key from dataset
--spec(remove_/2 :: (fd(), key()) -> ok | reference()).
 
-remove_(#dd{fd = FD, cache = undefined}, Key)
- when is_binary(Key) ->
-   eleveldb:delete(FD, Key, [{sync, false}]);
+remove_cache(#dd{cache = undefined}, _, _) ->
+   ok;
+remove_cache(#dd{cache = Cache}, Key, true) ->
+   cache:remove(Cache, Key);
+remove_cache(#dd{cache = Cache}, Key, false) ->
+   cache:remove_(Cache, Key).
 
-remove_(#dd{fd = FD, cache = Cache}, Key)
- when is_binary(Key) ->
-   cache:remove_(Cache, Key),
-   eleveldb:delete(FD, Key, [{sync, false}]).
-
+remove_btree(#dd{type = ephemeral,  fd = FD}, Key, _) ->
+   ets:delete(FD, Key), 
+   ok;
+remove_btree(#dd{type = persistent, fd = FD}, Key, Sync) ->
+   eleveldb:delete(FD, Key, [{sync, Sync}]).
 
 %%%----------------------------------------------------------------------------   
 %%%
@@ -377,11 +406,11 @@ delete_(Pid, Key) ->
 %%    <    while smaller [nil, Key)
 -spec(match/2 :: (fd(), key()) -> datum:stream()).
 
-match(#dd{fd = FD}, {Pred, Prefix})
+match(FD, {Pred, Prefix})
  when is_binary(Prefix) ->
    dive_stream:new(FD, {Pred, byte_size(Prefix), Prefix}, []);
 
-match(#dd{fd = FD}, '_') ->
+match(FD, '_') ->
    dive_stream:new(FD, '_', []).
 
 
@@ -391,28 +420,6 @@ match(#dd{fd = FD}, '_') ->
 %%%
 %%%----------------------------------------------------------------------------   
 
-%%
-%%
-db_get(FD, Key) ->
-   case eleveldb:get(FD, Key, []) of
-      {ok, Val} ->
-         {ok, Val};
-      not_found ->
-         {error, not_found};
-      {error,_} = Error ->
-         Error
-   end.
-
-db_get(FD, Cache, Key) ->
-   case eleveldb:get(FD, Key, []) of
-      {ok, Val} ->
-         cache:put(Cache, Key, Val),
-         {ok, Val};
-      not_found ->
-         {error, not_found};
-      {error,_} = Error ->
-         Error
-   end.
 
 
 %%

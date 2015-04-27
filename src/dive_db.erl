@@ -20,7 +20,7 @@
 -behaviour(pipe).
 
 -export([
-   start_link/1
+   start_link/2
   ,init/1
   ,free/2
   ,ioctl/2
@@ -31,6 +31,7 @@
 %% internal state
 -record(fsm, {
    fd    = undefined :: any()    %% file descriptor
+  ,type  = undefined :: ephemeral | persistent
   ,file  = undefined :: list()   %%
   ,cache = undefined :: pid()    %% database side-cache
   ,opts  = []        :: list()   %% list of file bucket options
@@ -45,12 +46,12 @@
 
 %%
 %%
-start_link(Opts) ->
-   pipe:start_link(?MODULE, [Opts], []).
+start_link(Type, Opts) ->
+   pipe:start_link(?MODULE, [Type, Opts], []).
 
-init([Opts]) ->
+init([Type, Opts]) ->
    _ = erlang:process_flag(trap_exit, true),
-   {ok, handle, init(Opts, #fsm{})}.
+   {ok, handle, init(Opts, #fsm{type = Type})}.
 
 init([{owner, Pid} | Opts], State) ->
    Ref  = erlang:monitor(process, Pid),
@@ -69,18 +70,18 @@ init([_| Opts], State) ->
    init(Opts, State);
 
 init([], State) ->
-   ok = filelib:ensure_dir(
-      filename:join([State#fsm.file, "README"])
-   ),
-   {ok, FD} = eleveldb:open(
-      State#fsm.file
-     ,db_opts(State#fsm.opts)
-   ),
+   {ok, FD} = open(State),
    State#fsm{fd = FD}.
+
 
 %%
 %%
-free(_, #fsm{fd = FD, cache = Cache}) ->
+free(_, #fsm{type = ephemeral, fd = FD, cache = Cache}) ->
+   ets:delete(FD),
+   cache:drop(Cache),
+   ok;
+
+free(_, #fsm{type = persistent, fd = FD, cache = Cache}) ->
    eleveldb:close(FD),
    cache:drop(Cache),
    ok.
@@ -161,7 +162,23 @@ handle(Msg, _Tx, S) ->
 %%
 %%
 db_opts(Opts) ->
-   [{create_if_missing, true} | Opts].
+   [{create_if_missing, true} | lists:delete(persistent, Opts)].
 
+%%
+%% open file description
+open(#fsm{type = ephemeral}) ->
+   {ok, ets:new(undefined, [
+      ordered_set,
+      public, 
+      {keypos, 1}, 
+      {write_concurrency, true}, 
+      {read_concurrency,  true}
+   ])};
+
+open(#fsm{type = persistent, file = File, opts = Opts}) ->
+   ok = filelib:ensure_dir(
+      filename:join([File, "README"])
+   ),
+   eleveldb:open(File ,db_opts(Opts)).
 
 

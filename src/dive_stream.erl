@@ -15,8 +15,9 @@
 %%   limitations under the License.
 %%
 %% @description
-%%  @todo: encode / decode stream data types
+%%
 -module(dive_stream).
+-include("dive.hrl").
 
 -export([
    new/3
@@ -24,7 +25,8 @@
 
 %% internal state
 -record(stream, {     
-   fd      = undefined :: any()       %% file descriptor
+   type    = undefined :: ephemeral | persistent
+  ,fd      = undefined :: any()       %% file descriptor
   ,io      = undefined :: any()       %% file iterator
   ,pattern = undefined :: any()       %% 
   ,read    = undefined :: any()       %%
@@ -35,13 +37,13 @@
 
 %%
 %% create stream
-new(FD, Pattern, Opts) ->
-   {ok, IO} = create_iterator(FD, Opts),
-   next_element(#stream{fd=FD, io=IO, pattern=Pattern}).
+new(#dd{type = Type, fd = FD}=DD, Pattern, Opts) ->
+   {ok, IO} = create_iterator(DD, Opts),
+   next_element(#stream{type=Type, fd=FD, io=IO, pattern=Pattern}).
 
 %%
 %% create iterator
-create_iterator(FD, Opts) ->
+create_iterator(#dd{type = persistent, fd = FD}, Opts) ->
    case opts:val(keys_only, undefined, Opts) of
       undefined -> 
          eleveldb:iterator(FD, opts:filter(?ALLOWED, Opts));
@@ -252,8 +254,8 @@ next_element_unsafe(#stream{pattern={'<', _Len, Key0}}=State) ->
 
 %%
 %%
-read_element(#stream{}=S) ->
-   case eleveldb:iterator_move(S#stream.io, S#stream.read) of
+read_element(#stream{type=persistent, io=IO, read=Read}) ->
+   case eleveldb:iterator_move(IO, Read) of
       {ok, Key, Val} ->
          {Key, Val};
       {ok,  Key} ->

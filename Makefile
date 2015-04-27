@@ -23,7 +23,7 @@ TEST?= priv/${APP}.benchmark
 S3   =
 GIT ?= 
 VMI  = 
-NET ?= en0
+NET ?= lo0
 
 ## root path to benchmark framework
 BB     = ../../erlang/basho_bench
