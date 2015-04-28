@@ -408,10 +408,10 @@ delete_(Pid, Key) ->
 
 match(FD, {Pred, Prefix})
  when is_binary(Prefix) ->
-   dive_stream:new(FD, {Pred, byte_size(Prefix), Prefix}, []);
+   dive_stream:new({Pred, Prefix}, FD, []);
 
 match(FD, '_') ->
-   dive_stream:new(FD, '_', []).
+   dive_stream:new('_', FD, []).
 
 
 %%%----------------------------------------------------------------------------   
