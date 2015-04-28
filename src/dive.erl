@@ -58,7 +58,7 @@ start() ->
 
 new(Opts) ->
    try
-      Type  = opts:get([ephemeral, persistent], Opts),
+      Type  = opts:get([ephemeral, persistent], persistent, Opts),
       {ok, Pid} = ensure(Type, Opts), 
       {ok,   _} = pipe:call(Pid, {init, self()}),
       FD    = pipe:ioctl(Pid, fd),
