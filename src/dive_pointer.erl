@@ -63,9 +63,13 @@ free(#ptr{type = persistent, fd = FD}) ->
 %%
 %%
 move(first, #ptr{type = ephemeral, fd = FD}=State) ->
-   [{Key, Val}] = ets:lookup(FD, ets:first(FD)),
-   State#ptr{key = Key, val=Val};
-
+   case ets:lookup(FD, ets:first(FD)) of
+      [{Key, Val}] ->
+         State#ptr{key = Key, val=Val};
+      [] ->
+         State#ptr{key = eof}
+   end;
+   
 move(first, #ptr{type = persistent, fd = FD}=State) ->
    case eleveldb:iterator_move(FD, first) of
       {ok, Key, Val} ->
