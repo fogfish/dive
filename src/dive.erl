@@ -52,6 +52,7 @@ start() ->
 %%    {file, list()} - name of folder to maintain database
 %%    {owner, pid()} - database owner process
 %%    {cache, pid()} - database in-memory cache  
+%%    terminate      - terminate database on exit
 %%    ...
 %%    see eleveldb options
 -spec(new/1 :: (list()) -> {ok, fd()} | {error, any()}).

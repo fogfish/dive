@@ -34,6 +34,7 @@
   ,type  = undefined :: ephemeral | persistent
   ,file  = undefined :: list()   %%
   ,cache = undefined :: pid()    %% database side-cache
+  ,terminate = undefined :: true | false
   ,opts  = []        :: list()   %% list of file bucket options
   ,pids  = []        :: [pid()]  %% list of client pids
 }).
@@ -66,6 +67,9 @@ init([{cache, Cache} | Opts], State) ->
    {ok, Pid} = cache:start_link(Cache),
    init(Opts, State#fsm{cache=Pid});
 
+init([terminate | Opts], State) ->
+   init(Opts, State#fsm{terminate=true});
+   
 init([_| Opts], State) ->
    init(Opts, State);
 
@@ -79,6 +83,12 @@ init([], State) ->
 free(_, #fsm{type = ephemeral, fd = FD, cache = Cache}) ->
    ets:delete(FD),
    cache:drop(Cache),
+   ok;
+
+free(_, #fsm{type = persistent, terminate = true, fd = FD, cache = Cache, file = File}) ->
+   eleveldb:close(FD),
+   cache:drop(Cache),
+   os:cmd("rm -Rf " ++ File),
    ok;
 
 free(_, #fsm{type = persistent, fd = FD, cache = Cache}) ->
