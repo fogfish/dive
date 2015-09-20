@@ -181,7 +181,6 @@ open(#fsm{type = ephemeral}) ->
       ordered_set,
       public, 
       {keypos, 1}, 
-      {write_concurrency, true}, 
       {read_concurrency,  true}
    ])};
 
@@ -189,6 +188,6 @@ open(#fsm{type = persistent, file = File, opts = Opts}) ->
    ok = filelib:ensure_dir(
       filename:join([File, "README"])
    ),
-   eleveldb:open(File ,db_opts(Opts)).
+   eleveldb:open(File, db_opts(Opts)).
 
 
