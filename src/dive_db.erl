@@ -153,6 +153,7 @@ handle({'EXIT', _, _}, _Tx, S) ->
 
 handle({apply, Fun}, Tx, State) ->
    try
+      % Note: non-well behaving function causes side effect to mailbox of this process
       pipe:ack(Tx, Fun())
    catch _:_ ->
       pipe:ack(Tx, {error, abort})      
@@ -160,7 +161,7 @@ handle({apply, Fun}, Tx, State) ->
    {next_state, handle, State};
 
 handle(Msg, _Tx, S) ->
-   error_logger:error_message("dive [db]: unexpected message ~p", [Msg]),
+   error_logger:error_msg("dive [db]: unexpected message ~p", [Msg]),
    {next_state, handle, S}.
 
 %%%----------------------------------------------------------------------------   
