@@ -7,9 +7,8 @@
 *.tgz
 tests/
 log/
-ebin/
-deps/
-.eunit/
-rebar
+rebar.lock
+rebar3
+_build/
 deps.config
 *.sublime-*

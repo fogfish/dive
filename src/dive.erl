@@ -5,6 +5,7 @@
 -export([
    new/1
   ,free/1
+  ,ioctl/2
   ,apply/2
   ,apply_/2
    %% hashmap interface
@@ -89,6 +90,13 @@ ensure(persistent, Opts) ->
 free(#dd{pid = Pid})
  when is_pid(Pid) ->
    pipe:call(Pid, {free, self()}).
+
+%%
+%% control i/o 
+-spec(ioctl/2 :: (atom(), fd()) -> fd()).
+
+ioctl(nocache, #dd{} = FD) ->
+   FD#dd{cache = undefined}.
 
 %%
 %% execute closure
