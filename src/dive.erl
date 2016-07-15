@@ -56,7 +56,7 @@ start() ->
 %%    terminate      - terminate database on exit
 %%    ...
 %%    see eleveldb options
--spec(new/1 :: (list()) -> {ok, fd()} | {error, any()}).
+-spec new(list()) -> {ok, fd()} | {error, any()}.
 
 new(Opts) ->
    try
@@ -85,7 +85,7 @@ ensure(persistent, Opts) ->
 
 %%
 %% release database instance
--spec(free/1 :: (pid()) -> ok).
+-spec free(pid()) -> ok.
 
 free(#dd{pid = Pid})
  when is_pid(Pid) ->
@@ -93,22 +93,22 @@ free(#dd{pid = Pid})
 
 %%
 %% control i/o 
--spec(ioctl/2 :: (atom(), fd()) -> fd()).
+-spec ioctl(atom(), fd()) -> fd().
 
 ioctl(nocache, #dd{} = FD) ->
    FD#dd{cache = undefined}.
 
 %%
-%% execute closure
--spec(apply/2 :: (fd(), function()) -> ok | {ok, any()} | {error, any()}).
+%% execute lambda expression
+-spec apply(fd(), function()) -> ok | {ok, any()} | {error, any()}.
 
 apply(Pid, Fun)
  when is_function(Fun) ->
    request(Pid, {apply, Fun}, infinity).
 
 %%
-%% execute closure asynchronously
--spec(apply_/2  :: (fd(), function()) -> ok).
+%% execute lambda expression asynchronously
+-spec apply_(fd(), function()) -> ok.
 
 apply_(Pid, Fun)
  when is_function(Fun) ->
@@ -122,8 +122,8 @@ apply_(Pid, Fun)
 
 %%
 %% put key/val
--spec(put/3 :: (fd(), key(), val())  -> ok | {error, any()}).
--spec(put_/3 :: (fd(), key(), val()) -> ok | {error, any()}).
+-spec put(fd(), key(), val())  -> ok | {error, any()}.
+-spec put_(fd(), key(), val()) -> ok | {error, any()}.
 
 put(FD, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -150,7 +150,7 @@ put_btree(#dd{type = persistent, fd = FD}, Key, Val, Sync) ->
 
 %%
 %% synchronous get entity from storage
--spec(get/2 :: (fd(), key()) -> {ok, val()} | {error, any()}).
+-spec get(fd(), key()) -> {ok, val()} | {error, any()}.
 
 get(#dd{cache = undefined}=FD, Key)
  when is_binary(Key) ->
@@ -187,8 +187,8 @@ get_btree(#dd{type = persistent, fd = FD}=DD, Key) ->
 
 %%
 %% remove entity from storage
--spec(remove/2  :: (fd(), key()) -> ok | {error, any()}).
--spec(remove_/2 :: (fd(), key()) -> ok | {error, any()}).
+-spec remove(fd(), key()) -> ok | {error, any()}.
+-spec remove_(fd(), key()) -> ok | {error, any()}.
 
 
 remove(FD, Key)
@@ -223,21 +223,21 @@ remove_btree(#dd{type = persistent, fd = FD}, Key, Sync) ->
 
 %%
 %% synchronous store key/val
--spec(set/3  :: (fd(), key(), val()) -> ok | {error, any()}).
+-spec set(fd(), key(), val()) -> ok | {error, any()}.
 
 set(Pid, Key, Val) ->
    put(Pid, Key, Val).
 
 %%
 %% asynchronous store key/val
--spec(set_/3 :: (fd(), key(), val()) -> ok | reference()).
+-spec set_(fd(), key(), val()) -> ok | reference().
 
 set_(Pid, Key, Val) ->
    put_(Pid, Key, Val).
 
 %%
 %% synchronous store key/val only if storage does not already hold data for this key
--spec(add/3  :: (fd(), key(), val()) -> ok | {error, any()}).
+-spec add(fd(), key(), val()) -> ok | {error, any()}.
 
 add(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -256,7 +256,7 @@ add(Pid, Key, Val)
 
 %%
 %% asynchronous store key/val only if cache does not already hold data for this key
--spec(add_/3  :: (fd(), key(), val()) -> ok | reference()).
+-spec add_(fd(), key(), val()) -> ok | reference().
 
 add_(#dd{pid = Pid}, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -275,7 +275,7 @@ add_(#dd{pid = Pid}, Key, Val)
 
 %%
 %% synchronous store key/val only if cache does hold data for this key
--spec(replace/3  :: (fd(), key(), val()) -> ok | {error, any()}).
+-spec replace(fd(), key(), val()) -> ok | {error, any()}.
 
 replace(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -292,7 +292,7 @@ replace(Pid, Key, Val)
 
 %%
 %% asynchronous store key/val only if cache does hold data for this key
--spec(replace_/3  :: (fd(), key(), val()) -> ok | reference()).
+-spec replace_(fd(), key(), val()) -> ok | reference().
 
 replace_(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -309,7 +309,7 @@ replace_(Pid, Key, Val)
 
 %%
 %% synchronously add data to existing key after existing data, the operation do not prolong entry ttl
--spec(append/3  :: (fd(), key(), val()) -> ok | {error, any()}).
+-spec append(fd(), key(), val()) -> ok | {error, any()}.
 
 append(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -330,7 +330,7 @@ append(Pid, Key, Val)
 
 %%
 %% asynchronously add data to existing key after existing data, the operation do not prolong entry ttl
--spec(append_/3  :: (fd(), key(), val()) -> ok | reference()).
+-spec append_(fd(), key(), val()) -> ok | reference().
 
 append_(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -351,7 +351,7 @@ append_(Pid, Key, Val)
 
 %%
 %% synchronously add data to existing key before existing data
--spec(prepend/3  :: (fd(), key(), val()) -> ok | {error, any()}).
+-spec prepend(fd(), key(), val()) -> ok | {error, any()}.
 
 prepend(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -372,7 +372,7 @@ prepend(Pid, Key, Val)
 
 %%
 %% asynchronously add data to existing key before existing data
--spec(prepend_/3  :: (fd(), key(), val()) -> ok | reference()).
+-spec prepend_(fd(), key(), val()) -> ok | reference().
 
 prepend_(Pid, Key, Val)
  when is_binary(Key), is_binary(Val) ->
@@ -393,14 +393,14 @@ prepend_(Pid, Key, Val)
 
 %%
 %% synchronous remove entry from cache
--spec(delete/2  :: (fd(), key()) -> ok | {error, any()}).
+-spec delete(fd(), key()) -> ok | {error, any()}.
 
 delete(Pid, Key) ->
    remove(Pid, Key).
 
 %%
 %% asynchronous remove entry from cache
--spec(delete_/2 :: (fd(), key()) -> ok | reference()).
+-spec delete_(fd(), key()) -> ok | reference().
 
 delete_(Pid, Key) ->
    remove_(Pid, Key).
@@ -413,7 +413,7 @@ delete_(Pid, Key) ->
 %%   =<
 %%    >    while great   (Key, inf]
 %%    <    while smaller [nil, Key)
--spec(match/2 :: (fd(), key()) -> datum:stream()).
+-spec match(fd(), key()) -> datum:stream().
 
 match(FD, {Pred, Prefix})
  when is_binary(Prefix) ->
