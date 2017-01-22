@@ -22,6 +22,7 @@
 -export([
    new/2
   ,free/1
+  ,is_eof/1
   ,move/2
   ,next/1
   ,prev/1
@@ -59,6 +60,10 @@ free(#ptr{type = persistent, fd = FD}) ->
    (catch eleveldb:iterator_close(FD)),
    ok.
 
+%%
+%%
+is_eof(#ptr{key = Key}) ->
+   Key =:= eof.
 
 %%
 %%
@@ -72,6 +77,16 @@ move(first, #ptr{type = ephemeral, fd = FD}=State) ->
    
 move(first, #ptr{type = persistent, fd = FD}=State) ->
    case eleveldb:iterator_move(FD, first) of
+      {ok, Key, Val} ->
+         State#ptr{key = Key, val = Val};
+      {ok,  Key} ->
+         State#ptr{key = Key};
+      {error,invalid_iterator} ->
+         State#ptr{key = eof}
+   end;
+
+move(last, #ptr{type = persistent, fd = FD}=State) ->
+   case eleveldb:iterator_move(FD, last) of
       {ok, Key, Val} ->
          State#ptr{key = Key, val = Val};
       {ok,  Key} ->

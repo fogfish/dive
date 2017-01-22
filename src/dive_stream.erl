@@ -62,7 +62,14 @@ new({'>=', Key0}, FD, Opts) ->
    next_element(dive_pointer:move(Key0, dive_pointer:new(FD, Opts)));
 
 new({'=<', Key0}, FD, Opts) ->
-   prev_element(dive_pointer:move(Key0, dive_pointer:new(FD, Opts)));
+   I0 = dive_pointer:new(FD, Opts),
+   I1 = dive_pointer:move(Key0, I0),
+   case dive_pointer:is_eof(I1) of
+      true ->
+         prev_element(dive_pointer:move(last, I0));
+      _ ->
+         prev_element(I1)
+   end;
 
 new({'>',  Key0}, FD, Opts) ->
    stream:dropwhile(
