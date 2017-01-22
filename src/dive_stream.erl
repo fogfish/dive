@@ -59,28 +59,33 @@ new({'=', Key0}, FD, Opts) ->
    );
 
 new({'>=', Key0}, FD, Opts) ->
-   next_element(dive_pointer:move(Key0, dive_pointer:new(FD, Opts)));
+   I = dive_pointer:move(Key0, dive_pointer:new(FD, Opts)),
+   case dive_pointer:is_eof(I) of
+      true ->
+         next_element(dive_pointer:move(first, I));
+      _ ->
+         next_element(I)
+   end;
 
 new({'=<', Key0}, FD, Opts) ->
-   I0 = dive_pointer:new(FD, Opts),
-   I1 = dive_pointer:move(Key0, I0),
-   case dive_pointer:is_eof(I1) of
+   I = dive_pointer:move(Key0, dive_pointer:new(FD, Opts)),
+   case dive_pointer:is_eof(I) of
       true ->
-         prev_element(dive_pointer:move(last, I0));
+         prev_element(dive_pointer:move(last, I));
       _ ->
-         prev_element(I1)
+         prev_element(I)
    end;
 
 new({'>',  Key0}, FD, Opts) ->
    stream:dropwhile(
       fun({Key1, _}) -> Key1 =:= Key0 end,
-      next_element(dive_pointer:move(Key0, dive_pointer:new(FD, Opts)))
+      new({'>=', Key0}, FD, Opts)
    );
 
 new({'<',  Key0}, FD, Opts) ->
    stream:dropwhile(
       fun({Key1, _}) -> Key1 =:= Key0 end,
-      prev_element(dive_pointer:move(Key0, dive_pointer:new(FD, Opts)))
+      new({'=<', Key0}, FD, Opts)
    ).
 
 %%
