@@ -60,21 +60,24 @@ new({'=', Key0}, FD, Opts) ->
 
 new({'>=', Key0}, FD, Opts) ->
    I = dive_pointer:move(Key0, dive_pointer:new(FD, Opts)),
-   case dive_pointer:is_eof(I) of
+   Stream = case dive_pointer:is_eof(I) of
       true ->
          next_element(dive_pointer:move(first, I));
       _ ->
          next_element(I)
-   end;
+   end,
+   stream:dropwhile(fun({Key1, _}) -> Key1 < Key0 end, Stream);
 
 new({'=<', Key0}, FD, Opts) ->
+   % pointer might set to neighbor value, we need to filter resulting stream
    I = dive_pointer:move(Key0, dive_pointer:new(FD, Opts)),
-   case dive_pointer:is_eof(I) of
+   Stream = case dive_pointer:is_eof(I) of
       true ->
          prev_element(dive_pointer:move(last, I));
       _ ->
          prev_element(I)
-   end;
+   end,
+   stream:dropwhile(fun({Key1, _}) -> Key1 > Key0 end, Stream);
 
 new({'>',  Key0}, FD, Opts) ->
    stream:dropwhile(
