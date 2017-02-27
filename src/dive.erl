@@ -60,7 +60,7 @@ start() ->
 
 new(Opts) ->
    try
-      Type  = opts:get([ephemeral, persistent], persistent, Opts),
+      Type  = typeof(Opts),
       {ok, Pid} = ensure(Type, Opts), 
       {ok,   _} = pipe:call(Pid, {init, self()}),
       FD    = pipe:ioctl(Pid, fd),
@@ -69,6 +69,16 @@ new(Opts) ->
    catch _:{badmatch, {error,Reason}} ->
       {error, Reason}
    end. 
+
+typeof(Opts) ->
+   case
+      {opts:val(persistent, true, Opts), opts:val(ephemeral, false, Opts)} 
+   of
+      {_, true} -> 
+         ephemeral;
+      {true, _} ->
+         persistent
+   end.
 
 %%
 %% ensure database leader process
