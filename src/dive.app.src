@@ -1,7 +1,7 @@
 {application, dive,
    [
       {description, "ordered key/val storage"},
-      {vsn,         "1.1.7"},
+      {vsn,         "1.1.8"},
       {modules,     []},
       {registered,  []},
       {applications,[
@@ -9,6 +9,7 @@
         ,stdlib
         ,pns
         ,eleveldb
+        ,cache
       ]},
       {mod, {dive_app, []}},      
       {env, []}
