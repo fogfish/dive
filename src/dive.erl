@@ -1,4 +1,6 @@
 -module(dive).
+-compile({parse_transform, category}).
+
 -include("dive.hrl").
 
 -export([start/0]).
@@ -59,39 +61,27 @@ start() ->
 -spec new(list()) -> {ok, fd()} | {error, any()}.
 
 new(Opts) ->
-   try
-      Type  = typeof(Opts),
-      {ok, Pid} = ensure(Type, Opts), 
-      {ok,   _} = pipe:call(Pid, {init, self()}),
-      FD    = pipe:ioctl(Pid, fd),
-      Cache = pipe:ioctl(Pid, cache),
-      {ok, #dd{type = Type, fd = FD, pid = Pid, cache = Cache}}
-   catch _:{badmatch, {error,Reason}} ->
-      {error, Reason}
-   end. 
+   [either ||
+      db_spawn(Opts),
+      db_descriptor(_)
+   ].
 
-typeof(Opts) ->
-   case
-      {opts:val(persistent, true, Opts), opts:val(ephemeral, false, Opts)} 
-   of
-      {_, true} -> 
-         ephemeral;
-      {true, _} ->
-         persistent
-   end.
+db_spawn(Opts) ->
+   db_spawn(opts:val(file, undefined, Opts), Opts).
 
-%%
-%% ensure database leader process
-ensure(ephemeral,  Opts) ->
-   supervisor:start_child(dive_db_sup, [ephemeral, Opts]);
-ensure(persistent, Opts) ->
-   File = opts:val(file, Opts),
+db_spawn(undefined, Opts) ->
+   supervisor:start_child(dive_db_sup, [Opts]);
+db_spawn(File, Opts) ->
    case pns:whereis(dive, File) of
       undefined ->
-         supervisor:start_child(dive_db_sup, [persistent, Opts]);
+         supervisor:start_child(dive_db_sup, [Opts]);
       Pid       ->
          {ok, Pid}
    end.
+
+db_descriptor(Pid) ->
+   pipe:call(Pid, {dd, self()}).
+
 
 %%
 %% release database instance
@@ -418,11 +408,11 @@ delete_(Pid, Key) ->
 %%
 %% match key pattern
 %%    ~    while prefix match
-%%    =    while key equals
-%%   >=
-%%   =<
-%%    >    while great   (Key, inf]
-%%    <    while smaller [nil, Key)
+%%    = eq   while key equals
+%%   >= ge
+%%   =< le
+%%    > gt   while great   (Key, inf]
+%%    < lt   while smaller [nil, Key)
 -spec match(fd(), key()) -> datum:stream().
 
 match(FD, {Pred, Prefix})

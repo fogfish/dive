@@ -19,11 +19,12 @@
 -module(dive_db).
 -behaviour(pipe).
 
+-include("dive.hrl").
+
 -export([
-   start_link/2
+   start_link/1
   ,init/1
   ,free/2
-  ,ioctl/2
   ,handle/3
 ]).
 
@@ -47,12 +48,12 @@
 
 %%
 %%
-start_link(Type, Opts) ->
-   pipe:start_link(?MODULE, [Type, Opts], []).
+start_link(Opts) ->
+   pipe:start_link(?MODULE, [Opts], []).
 
-init([Type, Opts]) ->
+init([Opts]) ->
    _ = erlang:process_flag(trap_exit, true),
-   {ok, handle, init(Opts, #fsm{type = Type})}.
+   {ok, handle, init(Opts, #fsm{type = typeof(Opts)})}.
 
 init([{owner, Pid} | Opts], State) ->
    Ref  = erlang:monitor(process, Pid),
@@ -74,36 +75,16 @@ init([_| Opts], State) ->
    init(Opts, State);
 
 init([], State) ->
-   {ok, FD} = open(State),
+   {ok, FD} = init_db(State),
    State#fsm{fd = FD}.
 
-
 %%
 %%
-free(_, #fsm{type = ephemeral, fd = FD, cache = Cache}) ->
-   ets:delete(FD),
-   cache:drop(Cache),
-   ok;
-
-free(_, #fsm{type = persistent, terminate = true, fd = FD, cache = Cache, file = File}) ->
-   eleveldb:close(FD),
-   cache:drop(Cache),
-   os:cmd("rm -Rf " ++ File),
-   ok;
-
-free(_, #fsm{type = persistent, fd = FD, cache = Cache}) ->
-   eleveldb:close(FD),
-   cache:drop(Cache),
+free(_Reason, State) ->
+   free_cache(State),
+   free_db(State),
    ok.
 
-%%
-%%
-ioctl(fd, #fsm{fd=X}) ->
-   X;
-ioctl(cache, #fsm{cache=X}) ->
-   X;   
-ioctl(_, _) ->
-   throw(not_supported).
 
 %%%----------------------------------------------------------------------------   
 %%%
@@ -111,16 +92,21 @@ ioctl(_, _) ->
 %%%
 %%%----------------------------------------------------------------------------   
 
-handle({init, Pid}, Tx, S) ->
-   case lists:keyfind(Pid, 1, S#fsm.pids) of
+handle({dd, Pid}, Pipe, #fsm{pids = Pids} = State) ->
+   case lists:keyfind(Pid, 1, Pids) of
       false ->
          Ref = erlang:monitor(process, Pid),
-         pipe:ack(Tx, {ok, self()}),
-         {next_state, handle, S#fsm{pids=[{Pid, Ref}|S#fsm.pids]}};
+         pipe:ack(Pipe, {ok, dd(State)}),
+         {next_state, handle, 
+            State#fsm{
+               pids=[{Pid, Ref} | Pids]
+            }
+         };
       _ ->
-         pipe:ack(Tx, {ok, self()}),
-         {next_state, handle, S}
+         pipe:ack(Pipe, {ok, dd(State)}),
+         {next_state, handle, State}
    end;
+   
 
 handle({free, Pid}, Tx, S) ->
    case lists:keytake(Pid, 1, S#fsm.pids) of
@@ -170,6 +156,21 @@ handle(Msg, _Tx, S) ->
 %%%
 %%%----------------------------------------------------------------------------   
 
+dd(#fsm{type = Type, fd = FD, cache = Cache}) ->
+   #dd{type = Type, fd = FD, pid = self(), cache = Cache}.
+
+%%
+%%
+typeof(Opts) ->
+   case
+      {opts:val(persistent, true, Opts), opts:val(ephemeral, false, Opts)} 
+   of
+      {_, true} -> 
+         ephemeral;
+      {true, _} ->
+         persistent
+   end.
+
 %%
 %%
 db_opts(Opts) ->
@@ -177,7 +178,7 @@ db_opts(Opts) ->
 
 %%
 %% open file description
-open(#fsm{type = ephemeral}) ->
+init_db(#fsm{type = ephemeral}) ->
    {ok, ets:new(undefined, [
       ordered_set,
       public, 
@@ -185,10 +186,29 @@ open(#fsm{type = ephemeral}) ->
       {read_concurrency,  true}
    ])};
 
-open(#fsm{type = persistent, file = File, opts = Opts}) ->
+init_db(#fsm{type = persistent, file = File, opts = Opts}) ->
    ok = filelib:ensure_dir(
       filename:join([File, "README"])
    ),
    eleveldb:open(File, db_opts(Opts)).
 
+%%
+%%
+free_cache(#fsm{cache = undefined}) ->
+   ok;
+free_cache(#fsm{cache = Cache}) ->
+   cache:drop(Cache).
+
+
+%%
+%%
+free_db(#fsm{type = ephemeral, fd = FD}) ->
+   ets:delete(FD);
+
+free_db(#fsm{type = persistent, terminate = true, fd = FD, file = File}) ->
+   eleveldb:close(FD),
+   os:cmd("rm -Rf " ++ File);
+
+free_db(#fsm{type = persistent, fd = FD}) ->
+   eleveldb:close(FD).
 
